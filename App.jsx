@@ -61,7 +61,9 @@ export default function App() {
         }
       })
       .catch(error => {
-        if (mounted) setMsg('تعذر التحقق من تسجيل الدخول: ' + getErrorMessage(error));
+        if (mounted) {
+          setMsg('تعذر التحقق من تسجيل الدخول: ' + getErrorMessage(error));
+        }
       });
 
     const {
@@ -319,7 +321,6 @@ export default function App() {
       return;
     }
 
-    // فتح نافذة واتساب أثناء ضغطة المستخدم لتجنب منع النوافذ المنبثقة.
     const whatsappWindow = window.open('about:blank', '_blank');
 
     setBusy(true);
@@ -330,7 +331,7 @@ export default function App() {
         student_id: session.user.id,
         course_id: selectedCourse,
         receipt_path: null,
-        transfer_reference: profile?.phone || phone.trim() || null,
+        transfer_reference: null,
         status: 'pending'
       });
 
@@ -387,7 +388,6 @@ export default function App() {
       if (whatsappWindow) {
         whatsappWindow.location.href = whatsappUrl;
       } else {
-        // بديل في حالة منع المتصفح فتح نافذة جديدة.
         window.location.href = whatsappUrl;
       }
     } catch (error) {
