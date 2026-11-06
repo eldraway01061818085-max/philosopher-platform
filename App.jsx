@@ -13,7 +13,7 @@ const grades = [
 const PHILOSOPHY_IMAGE = '/file_00000000f7a881f4b475ffb6768b5f12.png';
 const VODAFONE_CASH_NUMBER = '01064018499';
 const PAYMENT_WHATSAPP = '201064018499';
-const SUPPORT_WHATSAPP = '201061818085';
+const SUPPORT_WHATSAPP = '20106181818085';
 
 function getCourseImage(course) {
   return /فلسفة|منطق/.test(course?.title || '')
@@ -41,6 +41,7 @@ export default function App() {
   const [courseGrade, setCourseGrade] = useState(grades[0]);
   const [price, setPrice] = useState('');
   const [selectedCourse, setSelectedCourse] = useState('');
+  const [viewedCourse, setViewedCourse] = useState(null);
 
   const isAdmin = profile?.role === 'admin';
 
@@ -72,6 +73,7 @@ export default function App() {
   useEffect(() => {
     if (session) {
       loadProfile(session);
+      if (selectedCourse) setTab('dashboard');
     } else {
       setProfile(null);
       setMySubs([]);
@@ -201,6 +203,25 @@ export default function App() {
     );
   }
 
+  function browseCourse(course) {
+    setViewedCourse(course);
+    setTab('course');
+    setMsg('');
+  }
+
+  function subscribeCourse(course) {
+    setSelectedCourse(course.id);
+
+    if (!session) {
+      setTab('home');
+      setMsg('سجّل الدخول أو أنشئ حسابًا أولاً، وسيتم اختيار الكورس تلقائيًا.');
+      return;
+    }
+
+    setTab('dashboard');
+    setMsg('تم اختيار كورس ' + course.title + '. أكمل طلب الاشتراك بالأسفل.');
+  }
+
   async function requestSubscription(event) {
     event.preventDefault();
 
@@ -237,6 +258,7 @@ export default function App() {
 
     const studentName = profile?.full_name || name || 'طالب';
     const studentPhone = profile?.phone || phone || 'غير مسجل';
+
     const message = [
       'مرحباً، أريد تأكيد طلب اشتراك في المنصة التعليمية.',
       'اسم الطالب: ' + studentName,
@@ -345,6 +367,10 @@ export default function App() {
       .catch(() => setMsg('رقم فودافون كاش: ' + VODAFONE_CASH_NUMBER));
   }
 
+  const approvedCourseIds = mySubs
+    .filter(s => s.status === 'approved')
+    .map(s => s.course_id);
+
   if (!configured) {
     return (
       <main className="setup">
@@ -410,104 +436,294 @@ export default function App() {
         </div>
       )}
 
-      {!session ? (
-        <section className="auth grid2">
-          <form className="panel" onSubmit={login}>
-            <h2>تسجيل الدخول</h2>
+      {tab === 'home' && (
+        <>
+          {!session ? (
+            <section className="auth grid2">
+              <form className="panel" onSubmit={login}>
+                <h2>تسجيل الدخول</h2>
 
-            <label>
-              البريد الإلكتروني
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
+                <label>
+                  البريد الإلكتروني
+                  <input
+                    type="email"
+                    required
+                    autoComplete="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  كلمة المرور
+                  <input
+                    type="password"
+                    required
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                  />
+                </label>
+
+                <button disabled={busy}>دخول</button>
+
+                <button
+                  type="button"
+                  className="link"
+                  onClick={resetPassword}
+                >
+                  نسيت كلمة المرور؟
+                </button>
+              </form>
+
+              <form className="panel" onSubmit={register}>
+                <h2>إنشاء حساب طالب</h2>
+
+                <label>
+                  الاسم بالكامل
+                  <input
+                    required
+                    autoComplete="name"
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  البريد الإلكتروني
+                  <input
+                    type="email"
+                    required
+                    autoComplete="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  رقم الهاتف
+                  <input
+                    type="tel"
+                    autoComplete="tel"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  الصف الدراسي
+                  <select
+                    value={grade}
+                    onChange={e => setGrade(e.target.value)}
+                  >
+                    {grades.map(g => <option key={g}>{g}</option>)}
+                  </select>
+                </label>
+
+                <label>
+                  كلمة المرور (6 أحرف على الأقل)
+                  <input
+                    type="password"
+                    minLength="6"
+                    required
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                  />
+                </label>
+
+                <button disabled={busy}>إنشاء الحساب</button>
+              </form>
+            </section>
+          ) : (
+            <section className="content">
+              <h2>أهلاً بك في المنصة</h2>
+              <p>اختر الكورس الذي تريد تصفحه أو الاشتراك فيه.</p>
+            </section>
+          )}
+
+          <section className="content">
+            <h2>الكورسات المتاحة</h2>
+
+            <div className="grid3">
+              {courses.map(c => (
+                <article className="panel course" key={c.id}>
+                  {getCourseImage(c) && (
+                    <img
+                      src={getCourseImage(c)}
+                      alt="غلاف كورس الفلسفة والمنطق"
+                      onError={e => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                      style={{
+                        width: '100%',
+                        height: '180px',
+                        objectFit: 'cover',
+                        borderRadius: '12px',
+                        marginBottom: '12px'
+                      }}
+                    />
+                  )}
+
+                  <span className="tag">{c.grade}</span>
+                  <h3>{c.title}</h3>
+                  <b>{c.price} جنيه</b>
+
+                  <div className="actions">
+                    <button onClick={() => browseCourse(c)}>
+                      تصفح الكورس
+                    </button>
+
+                    <button
+                      className="outline"
+                      onClick={() => subscribeCourse(c)}
+                    >
+                      اشتراك في الكورس
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
+
+      {tab === 'course' && viewedCourse && (
+        <section className="content">
+          <button className="outline" onClick={() => setTab('home')}>
+            العودة للكورسات
+          </button>
+
+          <article className="panel">
+            {getCourseImage(viewedCourse) && (
+              <img
+                src={getCourseImage(viewedCourse)}
+                alt="غلاف كورس الفلسفة والمنطق"
+                onError={e => {
+                  e.currentTarget.style.display = 'none';
+                }}
+                style={{
+                  width: '100%',
+                  maxHeight: '260px',
+                  objectFit: 'cover',
+                  borderRadius: '12px',
+                  marginBottom: '12px'
+                }}
               />
-            </label>
+            )}
 
+            <span className="tag">{viewedCourse.grade}</span>
+            <h2>{viewedCourse.title}</h2>
+            <h3>{viewedCourse.price} جنيه</h3>
+
+            {approvedCourseIds.includes(viewedCourse.id) ? (
+              <>
+                <p>اشتراكك في هذا الكورس مفعّل. يمكنك مشاهدة الدروس.</p>
+                <Course course={viewedCourse} />
+              </>
+            ) : (
+              <>
+                <p>
+                  محتوى الكورس متاح بعد الاشتراك ومراجعة الدفع وتفعيل
+                  الاشتراك من الإدارة.
+                </p>
+                <button onClick={() => subscribeCourse(viewedCourse)}>
+                  اشتراك في الكورس
+                </button>
+              </>
+            )}
+          </article>
+        </section>
+      )}
+
+      {tab === 'dashboard' && session && (
+        <section className="content">
+          <h2>لوحة الطالب</h2>
+          <p>مرحباً {profile?.full_name || session.user.email}</p>
+
+          <h3>اشتراكاتي</h3>
+
+          {mySubs.map(s => (
+            <article className="panel item" key={s.id}>
+              <b>{s.courses?.title}</b>
+              <span>{s.courses?.grade}</span>
+              <span>
+                الحالة: {
+                  s.status === 'approved'
+                    ? 'مفعّل'
+                    : s.status === 'pending'
+                      ? 'قيد المراجعة'
+                      : 'مرفوض'
+                }
+              </span>
+            </article>
+          ))}
+
+          <h3>طلب اشتراك جديد</h3>
+
+          <form className="panel" onSubmit={requestSubscription}>
             <label>
-              كلمة المرور
-              <input
-                type="password"
-                required
-                autoComplete="current-password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-              />
-            </label>
-
-            <button disabled={busy}>دخول</button>
-
-            <button
-              type="button"
-              className="link"
-              onClick={resetPassword}
-            >
-              نسيت كلمة المرور؟
-            </button>
-          </form>
-
-          <form className="panel" onSubmit={register}>
-            <h2>إنشاء حساب طالب</h2>
-
-            <label>
-              الاسم بالكامل
-              <input
-                required
-                autoComplete="name"
-                value={name}
-                onChange={e => setName(e.target.value)}
-              />
-            </label>
-
-            <label>
-              البريد الإلكتروني
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-              />
-            </label>
-
-            <label>
-              رقم الهاتف
-              <input
-                type="tel"
-                autoComplete="tel"
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-              />
-            </label>
-
-            <label>
-              الصف الدراسي
+              اختر الكورس
               <select
-                value={grade}
-                onChange={e => setGrade(e.target.value)}
+                value={selectedCourse}
+                onChange={e => setSelectedCourse(e.target.value)}
+                required
               >
-                {grades.map(g => <option key={g}>{g}</option>)}
+                <option value="">اختر الكورس...</option>
+
+                {courses
+                  .filter(c => !mySubs.some(
+                    s => s.course_id === c.id && s.status !== 'rejected'
+                  ))
+                  .map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.title} — {c.price} جنيه
+                    </option>
+                  ))}
               </select>
             </label>
 
-            <label>
-              كلمة المرور (6 أحرف على الأقل)
-              <input
-                type="password"
-                minLength="6"
-                required
-                autoComplete="new-password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-              />
-            </label>
+            <div className="panel">
+              <h3>الدفع عن طريق فودافون كاش</h3>
+              <p>حوّل قيمة الكورس إلى رقم فودافون كاش التالي:</p>
 
-            <button disabled={busy}>إنشاء الحساب</button>
+              <h2 dir="ltr">{VODAFONE_CASH_NUMBER}</h2>
+
+              <button
+                type="button"
+                className="outline"
+                onClick={copyPaymentNumber}
+              >
+                نسخ رقم فودافون كاش
+              </button>
+
+              <p>
+                بعد التحويل اضغط على زر إرسال الطلب، وسيتم فتح واتساب
+                لإرسال إثبات التحويل. لن يتم تفعيل الكورس إلا بعد مراجعة
+                التحويل والتأكد من وصول المبلغ.
+              </p>
+            </div>
+
+            <button disabled={busy || !selectedCourse}>
+              {busy
+                ? 'جارٍ إرسال الطلب...'
+                : 'تسجيل الطلب وإرسال إثبات التحويل على واتساب'}
+            </button>
           </form>
+
+          <h3>الكورسات المفعّلة</h3>
+
+          {courses
+            .filter(c => approvedCourseIds.includes(c.id))
+            .map(c => (
+              <div key={c.id}>
+                <Course course={c} />
+              </div>
+            ))}
         </section>
-      ) : tab === 'admin' && isAdmin ? (
+      )}
+
+      {tab === 'admin' && isAdmin && (
         <section className="content">
           <h2>لوحة تحكم المدير</h2>
 
@@ -596,11 +812,7 @@ export default function App() {
           {pending.map(s => (
             <article className="panel item" key={s.id}>
               <b>{s.profiles?.full_name || s.profiles?.email || 'طالب'}</b>
-
-              <span>
-                {s.courses?.title} — {s.courses?.grade}
-              </span>
-
+              <span>{s.courses?.title} — {s.courses?.grade}</span>
               <span>المبلغ: {s.courses?.price ?? 'غير محدد'} جنيه</span>
               <span>هاتف الطالب: {s.profiles?.phone || 'غير مسجل'}</span>
               <span>البريد: {s.profiles?.email || 'غير متاح'}</span>
@@ -627,128 +839,6 @@ export default function App() {
               </div>
             </article>
           ))}
-        </section>
-      ) : tab === 'dashboard' ? (
-        <section className="content">
-          <h2>لوحة الطالب</h2>
-
-          <p>مرحباً {profile?.full_name || session.user.email}</p>
-
-          <h3>اشتراكاتي</h3>
-
-          {mySubs.map(s => (
-            <article className="panel item" key={s.id}>
-              <b>{s.courses?.title}</b>
-              <span>{s.courses?.grade}</span>
-              <span>
-                الحالة: {
-                  s.status === 'approved'
-                    ? 'مفعّل'
-                    : s.status === 'pending'
-                      ? 'قيد المراجعة'
-                      : 'مرفوض'
-                }
-              </span>
-            </article>
-          ))}
-
-          <h3>طلب اشتراك جديد</h3>
-
-          <form className="panel" onSubmit={requestSubscription}>
-            <label>
-              اختر الكورس
-              <select
-                value={selectedCourse}
-                onChange={e => setSelectedCourse(e.target.value)}
-                required
-              >
-                <option value="">اختر الكورس...</option>
-
-                {courses
-                  .filter(c => !mySubs.some(
-                    s => s.course_id === c.id && s.status !== 'rejected'
-                  ))
-                  .map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.title} — {c.price} جنيه
-                    </option>
-                  ))}
-              </select>
-            </label>
-
-            <div className="panel">
-              <h3>الدفع عن طريق فودافون كاش</h3>
-              <p>حوّل قيمة الكورس إلى رقم فودافون كاش التالي:</p>
-
-              <h2 dir="ltr">{VODAFONE_CASH_NUMBER}</h2>
-
-              <button
-                type="button"
-                className="outline"
-                onClick={copyPaymentNumber}
-              >
-                نسخ رقم فودافون كاش
-              </button>
-
-              <p>
-                بعد التحويل اضغط على زر إرسال الطلب، وسيتم فتح واتساب
-                لإرسال إثبات التحويل. لن يتم تفعيل الكورس إلا بعد مراجعة
-                التحويل والتأكد من وصول المبلغ.
-              </p>
-            </div>
-
-            <button
-              disabled={busy || !selectedCourse}
-            >
-              {busy ? 'جارٍ إرسال الطلب...' : 'تسجيل الطلب وإرسال إثبات التحويل على واتساب'}
-            </button>
-          </form>
-
-          <h3>الكورسات المفعّلة</h3>
-
-          {courses
-            .filter(c => mySubs.some(
-              s => s.course_id === c.id && s.status === 'approved'
-            ))
-            .map(c => <Course key={c.id} course={c} />)}
-        </section>
-      ) : (
-        <section className="content">
-          <h2>الكورسات المتاحة</h2>
-
-          <div className="grid3">
-            {courses.map(c => (
-              <article className="panel course" key={c.id}>
-                {getCourseImage(c) && (
-                  <img
-                    src={getCourseImage(c)}
-                    alt="غلاف كورس الفلسفة والمنطق"
-                    onError={e => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                    style={{
-                      width: '100%',
-                      height: '180px',
-                      objectFit: 'cover',
-                      borderRadius: '12px',
-                      marginBottom: '12px'
-                    }}
-                  />
-                )}
-
-                <span className="tag">{c.grade}</span>
-                <h3>{c.title}</h3>
-                <b>{c.price} جنيه</b>
-                <p>سجّل الدخول لطلب الاشتراك ومتابعة المحاضرات.</p>
-
-                {!session && (
-                  <button onClick={() => setTab('home')}>
-                    تسجيل الدخول للاشتراك
-                  </button>
-                )}
-              </article>
-            ))}
-          </div>
         </section>
       )}
 
@@ -787,23 +877,6 @@ function Course({ course }) {
 
   return (
     <article className="panel">
-      {getCourseImage(course) && (
-        <img
-          src={getCourseImage(course)}
-          alt="غلاف كورس الفلسفة والمنطق"
-          onError={e => {
-            e.currentTarget.style.display = 'none';
-          }}
-          style={{
-            width: '100%',
-            maxHeight: '220px',
-            objectFit: 'cover',
-            borderRadius: '12px',
-            marginBottom: '12px'
-          }}
-        />
-      )}
-
       <h3>{course.title}</h3>
 
       {error && <p>تعذر تحميل الدروس: {error}</p>}
