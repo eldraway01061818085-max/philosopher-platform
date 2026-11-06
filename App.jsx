@@ -10,11 +10,13 @@ const grades = [
   'تانية ثانوي أزهر وعام وبكالوريا'
 ];
 
-const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
 const PHILOSOPHY_IMAGE = '/file_00000000f7a881f4b475ffb6768b5f12.png';
+const VODAFONE_CASH_NUMBER = '01064018499';
+const PAYMENT_WHATSAPP = '201064018499';
+const SUPPORT_WHATSAPP = '201061818085';
 
 function getCourseImage(course) {
-  return /فلسفة|منطق/.test(course.title || '')
+  return /فلسفة|منطق/.test(course?.title || '')
     ? PHILOSOPHY_IMAGE
     : '';
 }
@@ -38,14 +40,7 @@ export default function App() {
   const [courseTitle, setCourseTitle] = useState('');
   const [courseGrade, setCourseGrade] = useState(grades[0]);
   const [price, setPrice] = useState('');
-
-  const [wallet] = useState(
-    import.meta.env.VITE_VODAFONE_CASH_NUMBER || ''
-  );
-
-  const [receipt, setReceipt] = useState(null);
   const [selectedCourse, setSelectedCourse] = useState('');
-  const [viewingCourse, setViewingCourse] = useState(null);
 
   const isAdmin = profile?.role === 'admin';
 
@@ -55,18 +50,14 @@ export default function App() {
     let mounted = true;
 
     supabase.auth.getSession().then(({ data, error }) => {
-      if (mounted && !error) {
-        setSession(data.session);
-      }
+      if (mounted && !error) setSession(data.session);
     });
 
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange(
-      (_event, nextSession) => {
-        if (mounted) setSession(nextSession);
-      }
-    );
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (mounted) setSession(nextSession);
+    });
 
     return () => {
       mounted = false;
@@ -107,7 +98,7 @@ export default function App() {
         .single(),
 
       supabase.from('subscriptions')
-        .select('*, courses(title,grade)')
+        .select('*, courses(title,grade,price)')
         .eq('student_id', userId)
         .order('created_at', { ascending: false })
     ]);
@@ -140,7 +131,7 @@ export default function App() {
 
   async function loadPending() {
     const { data, error } = await supabase.from('subscriptions')
-      .select('*, profiles(full_name,email), courses(title,grade)')
+      .select('*, profiles(full_name,email,phone), courses(title,grade,price)')
       .eq('status', 'pending')
       .order('created_at', { ascending: true });
 
@@ -188,10 +179,6 @@ export default function App() {
 
     setBusy(false);
 
-    if (!error) {
-      setTab('dashboard');
-    }
-
     setMsg(error
       ? 'تعذر تسجيل الدخول: ' + error.message
       : 'تم تسجيل الدخول بنجاح.'
@@ -217,55 +204,30 @@ export default function App() {
   async function requestSubscription(event) {
     event.preventDefault();
 
-    if (!receipt || !selectedCourse) {
-      return setMsg('اختر الكورس وارفع صورة الإيصال.');
+    if (!selectedCourse) {
+      return setMsg('اختر الكورس أولاً.');
     }
 
-    if (![
-      'image/jpeg',
-      'image/png',
-      'image/webp',
-      'application/pdf'
-    ].includes(receipt.type)) {
-      return setMsg('نوع الملف غير مدعوم.');
-    }
+    const course = courses.find(c => c.id === selectedCourse);
 
-    if (receipt.size > MAX_RECEIPT_BYTES) {
-      return setMsg('حجم الإيصال أكبر من 5 ميجابايت.');
+    if (!course) {
+      return setMsg('الكورس غير موجود. حدّث الصفحة وحاول مرة أخرى.');
     }
 
     setBusy(true);
     setMsg('');
 
-    const ext = receipt.name.split('.').pop()
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '') || 'bin';
-
-    const path = `${session.user.id}/${crypto.randomUUID()}.${ext}`;
-
-    const upload = await supabase.storage.from('receipts').upload(
-      path,
-      receipt,
-      { upsert: false, contentType: receipt.type }
-    );
-
-    if (upload.error) {
-      setBusy(false);
-      return setMsg('فشل رفع الإيصال: ' + upload.error.message);
-    }
-
     const { error } = await supabase.from('subscriptions').insert({
       student_id: session.user.id,
       course_id: selectedCourse,
-      receipt_path: path,
-      transfer_reference: phone.trim(),
+      receipt_path: null,
+      transfer_reference: profile?.phone || phone.trim() || null,
       status: 'pending'
     });
 
-    if (error) {
-      await supabase.storage.from('receipts').remove([path]);
-      setBusy(false);
+    setBusy(false);
 
+    if (error) {
       return setMsg(
         error.code === '23505'
           ? 'لديك طلب اشتراك قائم أو اشتراك مفعّل لهذا الكورس.'
@@ -273,11 +235,28 @@ export default function App() {
       );
     }
 
-    setBusy(false);
-    setMsg('تم إرسال طلب الاشتراك للمراجعة.');
-    setReceipt(null);
+    const studentName = profile?.full_name || name || 'طالب';
+    const studentPhone = profile?.phone || phone || 'غير مسجل';
+    const message = [
+      'مرحباً، أريد تأكيد طلب اشتراك في المنصة التعليمية.',
+      'اسم الطالب: ' + studentName,
+      'البريد الإلكتروني: ' + session.user.email,
+      'رقم الهاتف: ' + studentPhone,
+      'الصف الدراسي: ' + (profile?.grade || grade),
+      'الكورس: ' + course.title,
+      'السعر: ' + course.price + ' جنيه',
+      '',
+      'سأرسل صورة إثبات التحويل هنا.'
+    ].join('\n');
+
     setSelectedCourse('');
     await loadProfile();
+
+    const whatsappUrl =
+      'https://wa.me/' + PAYMENT_WHATSAPP +
+      '?text=' + encodeURIComponent(message);
+
+    window.location.href = whatsappUrl;
   }
 
   async function review(id, status) {
@@ -294,21 +273,12 @@ export default function App() {
 
     setMsg(error
       ? 'تعذر تحديث الطلب: ' + error.message
-      : 'تم تحديث حالة الطلب.'
+      : status === 'approved'
+        ? 'تم قبول الطلب وتفعيل الاشتراك.'
+        : 'تم رفض الطلب.'
     );
 
     await Promise.all([loadPending(), loadCourses()]);
-  }
-
-  async function openReceipt(path) {
-    const { data, error } = await supabase.storage.from('receipts')
-      .createSignedUrl(path, 60);
-
-    if (error) {
-      return setMsg('تعذر فتح الإيصال: ' + error.message);
-    }
-
-    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
   }
 
   async function addCourse(event) {
@@ -360,21 +330,19 @@ export default function App() {
     if (!error) form.reset();
   }
 
-  function browseCourse(course) {
-    setViewingCourse(course);
-    setTab('course');
-    setMsg('');
+  function openSupport() {
+    const message = 'مرحباً، أحتاج إلى مساعدة فنية في منصة الفيلسوف محمود حسن.';
+    window.open(
+      'https://wa.me/' + SUPPORT_WHATSAPP +
+      '?text=' + encodeURIComponent(message),
+      '_blank'
+    );
   }
 
-  function subscribeToCourse(course) {
-    setSelectedCourse(course.id);
-    setTab('dashboard');
-
-    if (!session) {
-      setMsg('سجّل الدخول أولاً، وبعدها ستجد الكورس محدداً في طلب الاشتراك.');
-    } else {
-      setMsg('الكورس تم اختياره. ارفع إيصال التحويل لإرسال طلب الاشتراك.');
-    }
+  function copyPaymentNumber() {
+    navigator.clipboard?.writeText(VODAFONE_CASH_NUMBER)
+      .then(() => setMsg('تم نسخ رقم فودافون كاش.'))
+      .catch(() => setMsg('رقم فودافون كاش: ' + VODAFONE_CASH_NUMBER));
   }
 
   if (!configured) {
@@ -387,9 +355,7 @@ export default function App() {
             أضف رابط مشروع Supabase ومفتاح anon/public
             في متغيرات البيئة ثم أعد تشغيل المشروع.
           </p>
-          <p>
-            لا تضع مفتاح Service Role في الواجهة.
-          </p>
+          <p>لا تضع مفتاح Service Role في الواجهة.</p>
         </div>
       </main>
     );
@@ -410,16 +376,16 @@ export default function App() {
           <button onClick={() => setTab('home')}>الرئيسية</button>
 
           {session && (
-            <button onClick={() => setTab('dashboard')}>
-              لوحتي
-            </button>
+            <button onClick={() => setTab('dashboard')}>لوحتي</button>
           )}
 
           {isAdmin && (
-            <button onClick={() => setTab('admin')}>
-              الإدارة
-            </button>
+            <button onClick={() => setTab('admin')}>الإدارة</button>
           )}
+
+          <button className="outline" onClick={openSupport}>
+            الدعم الفني
+          </button>
 
           {session && (
             <button
@@ -522,9 +488,7 @@ export default function App() {
                 value={grade}
                 onChange={e => setGrade(e.target.value)}
               >
-                {grades.map(g => (
-                  <option key={g}>{g}</option>
-                ))}
+                {grades.map(g => <option key={g}>{g}</option>)}
               </select>
             </label>
 
@@ -566,9 +530,7 @@ export default function App() {
                   value={courseGrade}
                   onChange={e => setCourseGrade(e.target.value)}
                 >
-                  {grades.map(g => (
-                    <option key={g}>{g}</option>
-                  ))}
+                  {grades.map(g => <option key={g}>{g}</option>)}
                 </select>
               </label>
 
@@ -594,9 +556,7 @@ export default function App() {
                 الكورس
                 <select name="course" required>
                   {courses.map(c => (
-                    <option value={c.id} key={c.id}>
-                      {c.title}
-                    </option>
+                    <option value={c.id} key={c.id}>{c.title}</option>
                   ))}
                 </select>
               </label>
@@ -608,21 +568,12 @@ export default function App() {
 
               <label>
                 رابط الفيديو
-                <input
-                  name="url"
-                  type="url"
-                  required
-                  placeholder="رابط الفيديو"
-                />
+                <input name="url" type="url" required placeholder="رابط الفيديو" />
               </label>
 
               <label>
                 ترتيب الدرس
-                <input
-                  name="order"
-                  type="number"
-                  defaultValue="0"
-                />
+                <input name="order" type="number" defaultValue="0" />
               </label>
 
               <button disabled={busy || courses.length === 0}>
@@ -644,28 +595,21 @@ export default function App() {
 
           {pending.map(s => (
             <article className="panel item" key={s.id}>
-              <b>
-                {s.profiles?.full_name ||
-                  s.profiles?.email ||
-                  'طالب'}
-              </b>
+              <b>{s.profiles?.full_name || s.profiles?.email || 'طالب'}</b>
 
               <span>
                 {s.courses?.title} — {s.courses?.grade}
               </span>
 
-              <span>
-                مرجع التحويل: {s.transfer_reference || 'غير مذكور'}
-              </span>
+              <span>المبلغ: {s.courses?.price ?? 'غير محدد'} جنيه</span>
+              <span>هاتف الطالب: {s.profiles?.phone || 'غير مسجل'}</span>
+              <span>البريد: {s.profiles?.email || 'غير متاح'}</span>
+
+              <p>
+                تأكد من وصول التحويل فعلياً قبل الضغط على قبول وتفعيل.
+              </p>
 
               <div className="actions">
-                <button
-                  className="outline"
-                  onClick={() => openReceipt(s.receipt_path)}
-                >
-                  عرض الإيصال
-                </button>
-
                 <button
                   disabled={busy}
                   onClick={() => review(s.id, 'approved')}
@@ -688,9 +632,7 @@ export default function App() {
         <section className="content">
           <h2>لوحة الطالب</h2>
 
-          <p>
-            مرحباً {profile?.full_name || session.user.email}
-          </p>
+          <p>مرحباً {profile?.full_name || session.user.email}</p>
 
           <h3>اشتراكاتي</h3>
 
@@ -720,12 +662,11 @@ export default function App() {
                 onChange={e => setSelectedCourse(e.target.value)}
                 required
               >
-                <option value="">اختر...</option>
+                <option value="">اختر الكورس...</option>
 
                 {courses
                   .filter(c => !mySubs.some(
-                    s => s.course_id === c.id &&
-                      s.status !== 'rejected'
+                    s => s.course_id === c.id && s.status !== 'rejected'
                   ))
                   .map(c => (
                     <option key={c.id} value={c.id}>
@@ -735,40 +676,31 @@ export default function App() {
               </select>
             </label>
 
-            <p>
-              حوّل قيمة الاشتراك إلى محفظة فودافون كاش:
-              <b>
-                {wallet || 'سيظهر رقم المحفظة بعد ضبط إعدادات النشر'}
-              </b>
-            </p>
+            <div className="panel">
+              <h3>الدفع عن طريق فودافون كاش</h3>
+              <p>حوّل قيمة الكورس إلى رقم فودافون كاش التالي:</p>
 
-            <label>
-              رقم العملية / رقم التحويل
-              <input
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-              />
-            </label>
+              <h2 dir="ltr">{VODAFONE_CASH_NUMBER}</h2>
 
-            <label>
-              صورة إيصال التحويل (حتى 5 ميجابايت)
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,application/pdf"
-                onChange={e => setReceipt(e.target.files?.[0] || null)}
-                required
-              />
-            </label>
+              <button
+                type="button"
+                className="outline"
+                onClick={copyPaymentNumber}
+              >
+                نسخ رقم فودافون كاش
+              </button>
+
+              <p>
+                بعد التحويل اضغط على زر إرسال الطلب، وسيتم فتح واتساب
+                لإرسال إثبات التحويل. لن يتم تفعيل الكورس إلا بعد مراجعة
+                التحويل والتأكد من وصول المبلغ.
+              </p>
+            </div>
 
             <button
-              disabled={busy || !courses.some(c =>
-                !mySubs.some(
-                  s => s.course_id === c.id &&
-                    s.status !== 'rejected'
-                )
-              )}
+              disabled={busy || !selectedCourse}
             >
-              إرسال للمراجعة
+              {busy ? 'جارٍ إرسال الطلب...' : 'تسجيل الطلب وإرسال إثبات التحويل على واتساب'}
             </button>
           </form>
 
@@ -776,50 +708,9 @@ export default function App() {
 
           {courses
             .filter(c => mySubs.some(
-              s => s.course_id === c.id &&
-                s.status === 'approved'
+              s => s.course_id === c.id && s.status === 'approved'
             ))
-            .map(c => (
-              <Course key={c.id} course={c} unlocked={true} />
-            ))}
-        </section>
-      ) : tab === 'course' && viewingCourse ? (
-        <section className="content">
-          <button
-            className="outline"
-            onClick={() => setTab('home')}
-          >
-            ← العودة إلى الكورسات
-          </button>
-
-          <h2>{viewingCourse.title}</h2>
-
-          <Course
-            course={viewingCourse}
-            unlocked={mySubs.some(
-              s => s.course_id === viewingCourse.id &&
-                s.status === 'approved'
-            )}
-          />
-
-          {!mySubs.some(
-            s => s.course_id === viewingCourse.id &&
-              s.status === 'approved'
-          ) && (
-            <div className="panel">
-              <h3>هذا الكورس يحتاج إلى اشتراك</h3>
-              <p>
-                اشترك في الكورس وأرسل إيصال التحويل،
-                وبعد مراجعة الإدارة سيتم تفعيل المحاضرات.
-              </p>
-
-              <button
-                onClick={() => subscribeToCourse(viewingCourse)}
-              >
-                الاشتراك في الكورس
-              </button>
-            </div>
-          )}
+            .map(c => <Course key={c.id} course={c} />)}
         </section>
       ) : (
         <section className="content">
@@ -848,25 +739,13 @@ export default function App() {
                 <span className="tag">{c.grade}</span>
                 <h3>{c.title}</h3>
                 <b>{c.price} جنيه</b>
+                <p>سجّل الدخول لطلب الاشتراك ومتابعة المحاضرات.</p>
 
-                <p>
-                  تصفح تفاصيل الكورس وتعرّف على محتواه.
-                </p>
-
-                <div className="actions">
-                  <button
-                    className="outline"
-                    onClick={() => browseCourse(c)}
-                  >
-                    تصفح الكورس
+                {!session && (
+                  <button onClick={() => setTab('home')}>
+                    تسجيل الدخول للاشتراك
                   </button>
-
-                  <button
-                    onClick={() => subscribeToCourse(c)}
-                  >
-                    الاشتراك في الكورس
-                  </button>
-                </div>
+                )}
               </article>
             ))}
           </div>
@@ -874,26 +753,21 @@ export default function App() {
       )}
 
       <footer>
-        © منصة الفيلسوف محمود حسن — جميع الحقوق محفوظة
+        <p>© منصة الفيلسوف محمود حسن — جميع الحقوق محفوظة</p>
+        <button className="outline" onClick={openSupport}>
+          الدعم الفني عبر واتساب: 01061818085
+        </button>
       </footer>
     </div>
   );
 }
 
-function Course({ course, unlocked }) {
+function Course({ course }) {
   const [lessons, setLessons] = useState([]);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let active = true;
-
-    if (!unlocked) {
-      setLessons([]);
-      setError('');
-      return () => {
-        active = false;
-      };
-    }
 
     supabase.from('lessons')
       .select('id,title,video_url,sort_order')
@@ -909,7 +783,7 @@ function Course({ course, unlocked }) {
     return () => {
       active = false;
     };
-  }, [course.id, unlocked]);
+  }, [course.id]);
 
   return (
     <article className="panel">
@@ -932,32 +806,24 @@ function Course({ course, unlocked }) {
 
       <h3>{course.title}</h3>
 
-      {!unlocked ? (
-        <p>المحاضرات مقفولة. اشترك في الكورس لتتمكن من مشاهدتها.</p>
-      ) : (
-        <>
-          {error && (
-            <p>تعذر تحميل الدروس: {error}</p>
-          )}
+      {error && <p>تعذر تحميل الدروس: {error}</p>}
 
-          {lessons.length === 0 && !error && (
-            <p>لا توجد دروس مضافة لهذا الكورس بعد.</p>
-          )}
-
-          {lessons.map(lesson => (
-            <p key={lesson.id}>
-              ▶ {lesson.title} —{' '}
-              <a
-                href={lesson.video_url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                مشاهدة الدرس
-              </a>
-            </p>
-          ))}
-        </>
+      {lessons.length === 0 && !error && (
+        <p>لا توجد دروس مضافة لهذا الكورس بعد.</p>
       )}
+
+      {lessons.map(lesson => (
+        <p key={lesson.id}>
+          ▶ {lesson.title} —{' '}
+          <a
+            href={lesson.video_url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            مشاهدة الدرس
+          </a>
+        </p>
+      ))}
     </article>
   );
 }
