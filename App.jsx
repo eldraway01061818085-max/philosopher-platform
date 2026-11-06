@@ -13,12 +13,16 @@ const grades = [
 const PHILOSOPHY_IMAGE = '/file_00000000f7a881f4b475ffb6768b5f12.png';
 const VODAFONE_CASH_NUMBER = '01064018499';
 const PAYMENT_WHATSAPP = '201064018499';
-const SUPPORT_WHATSAPP = '20106181818085';
+const SUPPORT_WHATSAPP = '201061818085';
 
 function getCourseImage(course) {
   return /فلسفة|منطق/.test(course?.title || '')
     ? PHILOSOPHY_IMAGE
     : '';
+}
+
+function getErrorMessage(error) {
+  return error?.message || 'حدث خطأ غير معروف. حاول مرة أخرى.';
 }
 
 export default function App() {
@@ -50,9 +54,15 @@ export default function App() {
 
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (mounted && !error) setSession(data.session);
-    });
+    supabase.auth.getSession()
+      .then(({ data, error }) => {
+        if (mounted && !error) {
+          setSession(data.session);
+        }
+      })
+      .catch(error => {
+        if (mounted) setMsg('تعذر التحقق من تسجيل الدخول: ' + getErrorMessage(error));
+      });
 
     const {
       data: { subscription }
@@ -88,119 +98,170 @@ export default function App() {
   async function loadProfile(activeSession = session) {
     if (!activeSession) return;
 
-    const userId = activeSession.user.id;
+    try {
+      const userId = activeSession.user.id;
 
-    const [
-      { data: profileData, error: profileError },
-      { data: subs, error: subsError }
-    ] = await Promise.all([
-      supabase.from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single(),
+      const [
+        { data: profileData, error: profileError },
+        { data: subs, error: subsError }
+      ] = await Promise.all([
+        supabase.from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle(),
 
-      supabase.from('subscriptions')
-        .select('*, courses(title,grade,price)')
-        .eq('student_id', userId)
-        .order('created_at', { ascending: false })
-    ]);
+        supabase.from('subscriptions')
+          .select('*, courses(title,grade,price)')
+          .eq('student_id', userId)
+          .order('created_at', { ascending: false })
+      ]);
 
-    if (profileError) {
-      setMsg('تعذر تحميل الملف الشخصي: ' + profileError.message);
-    } else {
-      setProfile(profileData);
+      if (profileError) {
+        setMsg('تعذر تحميل الملف الشخصي: ' + profileError.message);
+      } else {
+        const metadata = activeSession.user.user_metadata || {};
+
+        setProfile(profileData || {
+          id: userId,
+          full_name: metadata.full_name || '',
+          email: activeSession.user.email || '',
+          phone: metadata.phone || '',
+          grade: metadata.grade || '',
+          role: 'student'
+        });
+      }
+
+      if (subsError) {
+        setMsg('تعذر تحميل الاشتراكات: ' + subsError.message);
+      } else {
+        setMySubs(subs || []);
+      }
+    } catch (error) {
+      setMsg('حدث خطأ أثناء تحميل بيانات الحساب: ' + getErrorMessage(error));
     }
-
-    if (subsError) {
-      setMsg('تعذر تحميل الاشتراكات: ' + subsError.message);
-    }
-
-    setMySubs(subs || []);
   }
 
   async function loadCourses() {
-    const { data, error } = await supabase.from('courses')
-      .select('*')
-      .eq('active', true)
-      .order('created_at', { ascending: false });
+    try {
+      const { data, error } = await supabase.from('courses')
+        .select('*')
+        .eq('active', true)
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      setMsg('تعذر تحميل الكورسات: ' + error.message);
-    } else {
-      setCourses(data || []);
+      if (error) {
+        setMsg('تعذر تحميل الكورسات: ' + error.message);
+      } else {
+        setCourses(data || []);
+      }
+    } catch (error) {
+      setMsg('حدث خطأ أثناء تحميل الكورسات: ' + getErrorMessage(error));
     }
   }
 
   async function loadPending() {
-    const { data, error } = await supabase.from('subscriptions')
-      .select('*, profiles(full_name,email,phone), courses(title,grade,price)')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: true });
+    if (!isAdmin) return;
 
-    if (error) {
-      setMsg('تعذر تحميل طلبات الاشتراك: ' + error.message);
-    } else {
-      setPending(data || []);
+    try {
+      const { data, error } = await supabase.from('subscriptions')
+        .select('*, profiles(full_name,email,phone), courses(title,grade,price)')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        setMsg('تعذر تحميل طلبات الاشتراك: ' + error.message);
+      } else {
+        setPending(data || []);
+      }
+    } catch (error) {
+      setMsg('حدث خطأ أثناء تحميل الطلبات: ' + getErrorMessage(error));
     }
   }
 
   async function register(event) {
     event.preventDefault();
+
+    if (busy) return;
+
     setBusy(true);
     setMsg('');
 
-    const { error } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        data: {
-          full_name: name.trim(),
-          grade,
-          phone: phone.trim()
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: {
+            full_name: name.trim(),
+            grade,
+            phone: phone.trim()
+          }
         }
+      });
+
+      if (error) {
+        setMsg('تعذر إنشاء الحساب: ' + error.message);
+      } else if (data.session) {
+        setMsg('تم إنشاء الحساب وتسجيل الدخول بنجاح.');
+      } else {
+        setMsg('تم إنشاء الحساب. افحص بريدك الإلكتروني لتأكيد الحساب إذا كان تأكيد البريد مفعّلاً.');
       }
-    });
-
-    setBusy(false);
-
-    setMsg(error
-      ? 'تعذر إنشاء الحساب: ' + error.message
-      : 'تم إرسال طلب إنشاء الحساب. افحص بريدك لتأكيده إذا كان تأكيد البريد مفعّلاً.'
-    );
+    } catch (error) {
+      setMsg('حدث خطأ أثناء إنشاء الحساب: ' + getErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function login(event) {
     event.preventDefault();
+
+    if (busy) return;
+
     setBusy(true);
     setMsg('');
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password
-    });
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password
+      });
 
-    setBusy(false);
-
-    setMsg(error
-      ? 'تعذر تسجيل الدخول: ' + error.message
-      : 'تم تسجيل الدخول بنجاح.'
-    );
+      if (error) {
+        setMsg('تعذر تسجيل الدخول: ' + error.message);
+      } else {
+        setMsg('تم تسجيل الدخول بنجاح.');
+      }
+    } catch (error) {
+      setMsg('حدث خطأ أثناء تسجيل الدخول: ' + getErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function resetPassword() {
     if (!email.trim()) {
-      return setMsg('اكتب البريد الإلكتروني أولاً.');
+      setMsg('اكتب البريد الإلكتروني أولاً.');
+      return;
     }
 
-    const { error } = await supabase.auth.resetPasswordForEmail(
-      email.trim(),
-      { redirectTo: window.location.origin }
-    );
+    setBusy(true);
+    setMsg('');
 
-    setMsg(error
-      ? 'تعذر إرسال رابط الاستعادة: ' + error.message
-      : 'إذا كان البريد مسجلاً، فستصلك رسالة استعادة كلمة المرور.'
-    );
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        email.trim(),
+        { redirectTo: window.location.origin }
+      );
+
+      setMsg(error
+        ? 'تعذر إرسال رابط الاستعادة: ' + error.message
+        : 'إذا كان البريد مسجلاً، فستصلك رسالة استعادة كلمة المرور.'
+      );
+    } catch (error) {
+      setMsg('حدث خطأ: ' + getErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function browseCourse(course) {
@@ -225,146 +286,291 @@ export default function App() {
   async function requestSubscription(event) {
     event.preventDefault();
 
+    if (busy) return;
+
+    if (!session) {
+      setMsg('يجب تسجيل الدخول أولاً.');
+      setTab('home');
+      return;
+    }
+
     if (!selectedCourse) {
-      return setMsg('اختر الكورس أولاً.');
+      setMsg('اختر الكورس أولاً.');
+      return;
     }
 
     const course = courses.find(c => c.id === selectedCourse);
 
     if (!course) {
-      return setMsg('الكورس غير موجود. حدّث الصفحة وحاول مرة أخرى.');
+      setMsg('الكورس غير موجود. حدّث الصفحة وحاول مرة أخرى.');
+      return;
+    }
+
+    const existingSubscription = mySubs.find(
+      s => s.course_id === selectedCourse && s.status !== 'rejected'
+    );
+
+    if (existingSubscription) {
+      setMsg(
+        existingSubscription.status === 'approved'
+          ? 'اشتراكك في هذا الكورس مفعّل بالفعل.'
+          : 'لديك طلب اشتراك قيد المراجعة لهذا الكورس.'
+      );
+      return;
+    }
+
+    // فتح نافذة واتساب أثناء ضغطة المستخدم لتجنب منع النوافذ المنبثقة.
+    const whatsappWindow = window.open('about:blank', '_blank');
+
+    setBusy(true);
+    setMsg('جارٍ تسجيل طلب الاشتراك...');
+
+    try {
+      const { error } = await supabase.from('subscriptions').insert({
+        student_id: session.user.id,
+        course_id: selectedCourse,
+        receipt_path: null,
+        transfer_reference: profile?.phone || phone.trim() || null,
+        status: 'pending'
+      });
+
+      if (error) {
+        if (whatsappWindow) whatsappWindow.close();
+
+        setMsg(
+          error.code === '23505'
+            ? 'لديك طلب اشتراك قائم أو اشتراك مفعّل لهذا الكورس.'
+            : 'فشل تسجيل الطلب: ' + error.message
+        );
+        return;
+      }
+
+      const studentName =
+        profile?.full_name ||
+        name ||
+        session.user.user_metadata?.full_name ||
+        'طالب';
+
+      const studentPhone =
+        profile?.phone ||
+        phone ||
+        session.user.user_metadata?.phone ||
+        'غير مسجل';
+
+      const studentGrade =
+        profile?.grade ||
+        grade ||
+        session.user.user_metadata?.grade ||
+        'غير محدد';
+
+      const message = [
+        'مرحباً، أريد تأكيد طلب اشتراك في منصة الفيلسوف محمود حسن.',
+        'اسم الطالب: ' + studentName,
+        'البريد الإلكتروني: ' + (session.user.email || ''),
+        'رقم الهاتف: ' + studentPhone,
+        'الصف الدراسي: ' + studentGrade,
+        'الكورس: ' + course.title,
+        'السعر: ' + course.price + ' جنيه',
+        '',
+        'سأرسل صورة إثبات التحويل هنا.'
+      ].join('\n');
+
+      const whatsappUrl =
+        'https://wa.me/' + PAYMENT_WHATSAPP +
+        '?text=' + encodeURIComponent(message);
+
+      setSelectedCourse('');
+      setMsg('تم تسجيل الطلب. أرسل صورة التحويل في محادثة واتساب لإكمال المراجعة.');
+
+      await loadProfile(session);
+
+      if (whatsappWindow) {
+        whatsappWindow.location.href = whatsappUrl;
+      } else {
+        // بديل في حالة منع المتصفح فتح نافذة جديدة.
+        window.location.href = whatsappUrl;
+      }
+    } catch (error) {
+      if (whatsappWindow) whatsappWindow.close();
+
+      setMsg('حدث خطأ أثناء تسجيل الطلب: ' + getErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function review(id, status) {
+    if (!isAdmin || busy) return;
+
+    if (!['approved', 'rejected'].includes(status)) {
+      setMsg('حالة الطلب غير صحيحة.');
+      return;
     }
 
     setBusy(true);
     setMsg('');
 
-    const { error } = await supabase.from('subscriptions').insert({
-      student_id: session.user.id,
-      course_id: selectedCourse,
-      receipt_path: null,
-      transfer_reference: profile?.phone || phone.trim() || null,
-      status: 'pending'
-    });
+    try {
+      const { error } = await supabase.from('subscriptions')
+        .update({
+          status,
+          reviewed_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .eq('status', 'pending');
 
-    setBusy(false);
+      if (error) {
+        setMsg('تعذر تحديث الطلب: ' + error.message);
+      } else {
+        setMsg(
+          status === 'approved'
+            ? 'تم قبول الطلب وتفعيل الاشتراك.'
+            : 'تم رفض الطلب.'
+        );
+      }
 
-    if (error) {
-      return setMsg(
-        error.code === '23505'
-          ? 'لديك طلب اشتراك قائم أو اشتراك مفعّل لهذا الكورس.'
-          : 'فشل إرسال الطلب: ' + error.message
-      );
+      await Promise.all([loadPending(), loadCourses()]);
+    } catch (error) {
+      setMsg('حدث خطأ أثناء مراجعة الطلب: ' + getErrorMessage(error));
+    } finally {
+      setBusy(false);
     }
-
-    const studentName = profile?.full_name || name || 'طالب';
-    const studentPhone = profile?.phone || phone || 'غير مسجل';
-
-    const message = [
-      'مرحباً، أريد تأكيد طلب اشتراك في المنصة التعليمية.',
-      'اسم الطالب: ' + studentName,
-      'البريد الإلكتروني: ' + session.user.email,
-      'رقم الهاتف: ' + studentPhone,
-      'الصف الدراسي: ' + (profile?.grade || grade),
-      'الكورس: ' + course.title,
-      'السعر: ' + course.price + ' جنيه',
-      '',
-      'سأرسل صورة إثبات التحويل هنا.'
-    ].join('\n');
-
-    setSelectedCourse('');
-    await loadProfile();
-
-    const whatsappUrl =
-      'https://wa.me/' + PAYMENT_WHATSAPP +
-      '?text=' + encodeURIComponent(message);
-
-    window.location.href = whatsappUrl;
-  }
-
-  async function review(id, status) {
-    setBusy(true);
-
-    const { error } = await supabase.from('subscriptions')
-      .update({
-        status,
-        reviewed_at: new Date().toISOString()
-      })
-      .eq('id', id);
-
-    setBusy(false);
-
-    setMsg(error
-      ? 'تعذر تحديث الطلب: ' + error.message
-      : status === 'approved'
-        ? 'تم قبول الطلب وتفعيل الاشتراك.'
-        : 'تم رفض الطلب.'
-    );
-
-    await Promise.all([loadPending(), loadCourses()]);
   }
 
   async function addCourse(event) {
     event.preventDefault();
+
+    if (!isAdmin || busy) return;
+
+    const numericPrice = Number(price);
+
+    if (!courseTitle.trim()) {
+      setMsg('اكتب اسم الكورس.');
+      return;
+    }
+
+    if (!Number.isFinite(numericPrice) || numericPrice < 0) {
+      setMsg('اكتب سعرًا صحيحًا للكورس.');
+      return;
+    }
+
     setBusy(true);
+    setMsg('');
 
-    const { error } = await supabase.from('courses').insert({
-      title: courseTitle.trim(),
-      grade: courseGrade,
-      price: Number(price),
-      active: true
-    });
+    try {
+      const { error } = await supabase.from('courses').insert({
+        title: courseTitle.trim(),
+        grade: courseGrade,
+        price: numericPrice,
+        active: true
+      });
 
-    setBusy(false);
-
-    setMsg(error
-      ? 'تعذرت إضافة الكورس: ' + error.message
-      : 'تمت إضافة الكورس.'
-    );
-
-    if (!error) {
-      setCourseTitle('');
-      setPrice('');
-      await loadCourses();
+      if (error) {
+        setMsg('تعذرت إضافة الكورس: ' + error.message);
+      } else {
+        setMsg('تمت إضافة الكورس بنجاح.');
+        setCourseTitle('');
+        setPrice('');
+        await loadCourses();
+      }
+    } catch (error) {
+      setMsg('حدث خطأ أثناء إضافة الكورس: ' + getErrorMessage(error));
+    } finally {
+      setBusy(false);
     }
   }
 
   async function addLesson(event) {
     event.preventDefault();
-    setBusy(true);
+
+    if (!isAdmin || busy) return;
 
     const form = event.currentTarget;
     const fd = new FormData(form);
+    const title = String(fd.get('title') || '').trim();
+    const videoUrl = String(fd.get('url') || '').trim();
 
-    const { error } = await supabase.from('lessons').insert({
-      course_id: fd.get('course'),
-      title: String(fd.get('title')).trim(),
-      video_url: String(fd.get('url')).trim(),
-      sort_order: Number(fd.get('order') || 0)
-    });
+    if (!title || !videoUrl) {
+      setMsg('اكتب عنوان الدرس ورابط الفيديو.');
+      return;
+    }
 
-    setBusy(false);
+    try {
+      const parsedUrl = new URL(videoUrl);
 
-    setMsg(error
-      ? 'تعذرت إضافة الدرس: ' + error.message
-      : 'تمت إضافة الدرس.'
-    );
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        setMsg('رابط الفيديو غير صحيح.');
+        return;
+      }
+    } catch {
+      setMsg('رابط الفيديو غير صحيح.');
+      return;
+    }
 
-    if (!error) form.reset();
+    setBusy(true);
+    setMsg('');
+
+    try {
+      const { error } = await supabase.from('lessons').insert({
+        course_id: fd.get('course'),
+        title,
+        video_url: videoUrl,
+        sort_order: Number(fd.get('order') || 0)
+      });
+
+      if (error) {
+        setMsg('تعذرت إضافة الدرس: ' + error.message);
+      } else {
+        setMsg('تمت إضافة الدرس بنجاح.');
+        form.reset();
+      }
+    } catch (error) {
+      setMsg('حدث خطأ أثناء إضافة الدرس: ' + getErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function openSupport() {
     const message = 'مرحباً، أحتاج إلى مساعدة فنية في منصة الفيلسوف محمود حسن.';
-    window.open(
+    const url =
       'https://wa.me/' + SUPPORT_WHATSAPP +
-      '?text=' + encodeURIComponent(message),
-      '_blank'
-    );
+      '?text=' + encodeURIComponent(message);
+
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 
-  function copyPaymentNumber() {
-    navigator.clipboard?.writeText(VODAFONE_CASH_NUMBER)
-      .then(() => setMsg('تم نسخ رقم فودافون كاش.'))
-      .catch(() => setMsg('رقم فودافون كاش: ' + VODAFONE_CASH_NUMBER));
+  async function copyPaymentNumber() {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        setMsg('رقم فودافون كاش هو: ' + VODAFONE_CASH_NUMBER);
+        return;
+      }
+
+      await navigator.clipboard.writeText(VODAFONE_CASH_NUMBER);
+      setMsg('تم نسخ رقم فودافون كاش.');
+    } catch {
+      setMsg('رقم فودافون كاش هو: ' + VODAFONE_CASH_NUMBER);
+    }
+  }
+
+  async function logout() {
+    setBusy(true);
+
+    try {
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        setMsg('تعذر تسجيل الخروج: ' + error.message);
+      } else {
+        setTab('home');
+        setMsg('تم تسجيل الخروج.');
+      }
+    } catch (error) {
+      setMsg('حدث خطأ أثناء تسجيل الخروج: ' + getErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
   const approvedCourseIds = mySubs
@@ -416,7 +622,8 @@ export default function App() {
           {session && (
             <button
               className="outline"
-              onClick={() => supabase.auth.signOut()}
+              disabled={busy}
+              onClick={logout}
             >
               خروج
             </button>
@@ -465,11 +672,14 @@ export default function App() {
                   />
                 </label>
 
-                <button disabled={busy}>دخول</button>
+                <button disabled={busy}>
+                  {busy ? 'جارٍ الدخول...' : 'دخول'}
+                </button>
 
                 <button
                   type="button"
                   className="link"
+                  disabled={busy}
                   onClick={resetPassword}
                 >
                   نسيت كلمة المرور؟
@@ -532,7 +742,9 @@ export default function App() {
                   />
                 </label>
 
-                <button disabled={busy}>إنشاء الحساب</button>
+                <button disabled={busy}>
+                  {busy ? 'جارٍ إنشاء الحساب...' : 'إنشاء الحساب'}
+                </button>
               </form>
             </section>
           ) : (
@@ -584,6 +796,10 @@ export default function App() {
                 </article>
               ))}
             </div>
+
+            {courses.length === 0 && (
+              <p>لا توجد كورسات متاحة حالياً.</p>
+            )}
           </section>
         </>
       )}
@@ -616,7 +832,7 @@ export default function App() {
             <h2>{viewedCourse.title}</h2>
             <h3>{viewedCourse.price} جنيه</h3>
 
-            {approvedCourseIds.includes(viewedCourse.id) ? (
+            {session && approvedCourseIds.includes(viewedCourse.id) ? (
               <>
                 <p>اشتراكك في هذا الكورس مفعّل. يمكنك مشاهدة الدروس.</p>
                 <Course course={viewedCourse} />
@@ -643,9 +859,13 @@ export default function App() {
 
           <h3>اشتراكاتي</h3>
 
+          {mySubs.length === 0 && (
+            <p>ليس لديك اشتراكات حتى الآن.</p>
+          )}
+
           {mySubs.map(s => (
             <article className="panel item" key={s.id}>
-              <b>{s.courses?.title}</b>
+              <b>{s.courses?.title || 'كورس'}</b>
               <span>{s.courses?.grade}</span>
               <span>
                 الحالة: {
@@ -762,7 +982,9 @@ export default function App() {
                 />
               </label>
 
-              <button disabled={busy}>إضافة الكورس</button>
+              <button disabled={busy}>
+                {busy ? 'جارٍ الحفظ...' : 'إضافة الكورس'}
+              </button>
             </form>
 
             <form className="panel" onSubmit={addLesson}>
@@ -770,7 +992,8 @@ export default function App() {
 
               <label>
                 الكورس
-                <select name="course" required>
+                <select name="course" required defaultValue="">
+                  <option value="" disabled>اختر الكورس...</option>
                   {courses.map(c => (
                     <option value={c.id} key={c.id}>{c.title}</option>
                   ))}
@@ -793,14 +1016,18 @@ export default function App() {
               </label>
 
               <button disabled={busy || courses.length === 0}>
-                حفظ الدرس
+                {busy ? 'جارٍ الحفظ...' : 'حفظ الدرس'}
               </button>
             </form>
           </div>
 
           <div className="section-heading">
             <h3>طلبات الاشتراك المعلقة ({pending.length})</h3>
-            <button className="outline" onClick={loadPending}>
+            <button
+              className="outline"
+              disabled={busy}
+              onClick={loadPending}
+            >
               تحديث
             </button>
           </div>
@@ -855,20 +1082,37 @@ export default function App() {
 function Course({ course }) {
   const [lessons, setLessons] = useState([]);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
 
-    supabase.from('lessons')
-      .select('id,title,video_url,sort_order')
-      .eq('course_id', course.id)
-      .order('sort_order')
-      .then(({ data, error: queryError }) => {
-        if (active) {
+    async function loadLessons() {
+      setLoading(true);
+      setError('');
+
+      try {
+        const { data, error: queryError } = await supabase.from('lessons')
+          .select('id,title,video_url,sort_order')
+          .eq('course_id', course.id)
+          .order('sort_order');
+
+        if (!active) return;
+
+        if (queryError) {
+          setError(queryError.message);
+          setLessons([]);
+        } else {
           setLessons(data || []);
-          setError(queryError?.message || '');
         }
-      });
+      } catch (error) {
+        if (active) setError(getErrorMessage(error));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    loadLessons();
 
     return () => {
       active = false;
@@ -879,9 +1123,11 @@ function Course({ course }) {
     <article className="panel">
       <h3>{course.title}</h3>
 
+      {loading && <p>جارٍ تحميل الدروس...</p>}
+
       {error && <p>تعذر تحميل الدروس: {error}</p>}
 
-      {lessons.length === 0 && !error && (
+      {!loading && !error && lessons.length === 0 && (
         <p>لا توجد دروس مضافة لهذا الكورس بعد.</p>
       )}
 
