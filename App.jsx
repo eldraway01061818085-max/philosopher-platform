@@ -45,6 +45,7 @@ export default function App() {
 
   const [receipt, setReceipt] = useState(null);
   const [selectedCourse, setSelectedCourse] = useState('');
+  const [viewingCourse, setViewingCourse] = useState(null);
 
   const isAdmin = profile?.role === 'admin';
 
@@ -186,6 +187,10 @@ export default function App() {
     });
 
     setBusy(false);
+
+    if (!error) {
+      setTab('dashboard');
+    }
 
     setMsg(error
       ? 'تعذر تسجيل الدخول: ' + error.message
@@ -353,6 +358,23 @@ export default function App() {
     );
 
     if (!error) form.reset();
+  }
+
+  function browseCourse(course) {
+    setViewingCourse(course);
+    setTab('course');
+    setMsg('');
+  }
+
+  function subscribeToCourse(course) {
+    setSelectedCourse(course.id);
+    setTab('dashboard');
+
+    if (!session) {
+      setMsg('سجّل الدخول أولاً، وبعدها ستجد الكورس محدداً في طلب الاشتراك.');
+    } else {
+      setMsg('الكورس تم اختياره. ارفع إيصال التحويل لإرسال طلب الاشتراك.');
+    }
   }
 
   if (!configured) {
@@ -758,8 +780,46 @@ export default function App() {
                 s.status === 'approved'
             ))
             .map(c => (
-              <Course key={c.id} course={c} />
+              <Course key={c.id} course={c} unlocked={true} />
             ))}
+        </section>
+      ) : tab === 'course' && viewingCourse ? (
+        <section className="content">
+          <button
+            className="outline"
+            onClick={() => setTab('home')}
+          >
+            ← العودة إلى الكورسات
+          </button>
+
+          <h2>{viewingCourse.title}</h2>
+
+          <Course
+            course={viewingCourse}
+            unlocked={mySubs.some(
+              s => s.course_id === viewingCourse.id &&
+                s.status === 'approved'
+            )}
+          />
+
+          {!mySubs.some(
+            s => s.course_id === viewingCourse.id &&
+              s.status === 'approved'
+          ) && (
+            <div className="panel">
+              <h3>هذا الكورس يحتاج إلى اشتراك</h3>
+              <p>
+                اشترك في الكورس وأرسل إيصال التحويل،
+                وبعد مراجعة الإدارة سيتم تفعيل المحاضرات.
+              </p>
+
+              <button
+                onClick={() => subscribeToCourse(viewingCourse)}
+              >
+                الاشتراك في الكورس
+              </button>
+            </div>
+          )}
         </section>
       ) : (
         <section className="content">
@@ -788,9 +848,25 @@ export default function App() {
                 <span className="tag">{c.grade}</span>
                 <h3>{c.title}</h3>
                 <b>{c.price} جنيه</b>
+
                 <p>
-                  سجّل الدخول لطلب الاشتراك ومتابعة المحاضرات.
+                  تصفح تفاصيل الكورس وتعرّف على محتواه.
                 </p>
+
+                <div className="actions">
+                  <button
+                    className="outline"
+                    onClick={() => browseCourse(c)}
+                  >
+                    تصفح الكورس
+                  </button>
+
+                  <button
+                    onClick={() => subscribeToCourse(c)}
+                  >
+                    الاشتراك في الكورس
+                  </button>
+                </div>
               </article>
             ))}
           </div>
@@ -804,12 +880,20 @@ export default function App() {
   );
 }
 
-function Course({ course }) {
+function Course({ course, unlocked }) {
   const [lessons, setLessons] = useState([]);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let active = true;
+
+    if (!unlocked) {
+      setLessons([]);
+      setError('');
+      return () => {
+        active = false;
+      };
+    }
 
     supabase.from('lessons')
       .select('id,title,video_url,sort_order')
@@ -825,7 +909,7 @@ function Course({ course }) {
     return () => {
       active = false;
     };
-  }, [course.id]);
+  }, [course.id, unlocked]);
 
   return (
     <article className="panel">
@@ -848,26 +932,32 @@ function Course({ course }) {
 
       <h3>{course.title}</h3>
 
-      {error && (
-        <p>تعذر تحميل الدروس: {error}</p>
-      )}
+      {!unlocked ? (
+        <p>المحاضرات مقفولة. اشترك في الكورس لتتمكن من مشاهدتها.</p>
+      ) : (
+        <>
+          {error && (
+            <p>تعذر تحميل الدروس: {error}</p>
+          )}
 
-      {lessons.length === 0 && !error && (
-        <p>لا توجد دروس مضافة لهذا الكورس بعد.</p>
-      )}
+          {lessons.length === 0 && !error && (
+            <p>لا توجد دروس مضافة لهذا الكورس بعد.</p>
+          )}
 
-      {lessons.map(lesson => (
-        <p key={lesson.id}>
-          ▶ {lesson.title} —{' '}
-          <a
-            href={lesson.video_url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            مشاهدة الدرس
-          </a>
-        </p>
-      ))}
+          {lessons.map(lesson => (
+            <p key={lesson.id}>
+              ▶ {lesson.title} —{' '}
+              <a
+                href={lesson.video_url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                مشاهدة الدرس
+              </a>
+            </p>
+          ))}
+        </>
+      )}
     </article>
   );
 }
