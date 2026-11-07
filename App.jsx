@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { supabase, configured } from './supabase';
 
@@ -21,15 +22,21 @@ const governorates = [
 const PHILOSOPHY_IMAGE = '/file_00000000f7a881f4b475ffb6768b5f12.png';
 const PSYCHOLOGY_IMAGE = '/file_00000000e300820a824803dc05058f7d.png';
 const TEACHER_IMAGE = '/IMG-20261103-WA0020.jpg';
+
 const VODAFONE_CASH_NUMBER = '01064018499';
 const PAYMENT_WHATSAPP = '201064018499';
 const SUPPORT_WHATSAPP = '201061818085';
 
 function getCourseImage(course) {
-  const title = course?.title || '';
+  const title = (course?.title || '').trim();
 
-  if (/فلسفة|منطق/.test(title)) return PHILOSOPHY_IMAGE;
-  if (/علم\s*النفس/.test(title)) return PSYCHOLOGY_IMAGE;
+  if (/فلسفة|منطق/.test(title)) {
+    return PHILOSOPHY_IMAGE;
+  }
+
+  if (/علم\s*نفس/.test(title)) {
+    return PSYCHOLOGY_IMAGE;
+  }
 
   return '';
 }
@@ -1238,4 +1245,4 @@ function Course({ course }) {
       ))}
     </article>
   );
-               }
+}
