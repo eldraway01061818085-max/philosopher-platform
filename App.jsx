@@ -11,36 +11,16 @@ const grades = [
 ];
 
 const governorates = [
-  'القاهرة',
-  'الجيزة',
-  'الإسكندرية',
-  'القليوبية',
-  'البحيرة',
-  'مطروح',
-  'كفر الشيخ',
-  'الغربية',
-  'المنوفية',
-  'الدقهلية',
-  'دمياط',
-  'الشرقية',
-  'بورسعيد',
-  'الإسماعيلية',
-  'السويس',
-  'شمال سيناء',
-  'جنوب سيناء',
-  'الفيوم',
-  'بني سويف',
-  'المنيا',
-  'أسيوط',
-  'سوهاج',
-  'قنا',
-  'الأقصر',
-  'أسوان',
-  'البحر الأحمر',
-  'الوادي الجديد'
+  'القاهرة', 'الجيزة', 'الإسكندرية', 'القليوبية', 'البحيرة',
+  'مطروح', 'كفر الشيخ', 'الغربية', 'المنوفية', 'الدقهلية',
+  'دمياط', 'الشرقية', 'بورسعيد', 'الإسماعيلية', 'السويس',
+  'شمال سيناء', 'جنوب سيناء', 'الفيوم', 'بني سويف', 'المنيا',
+  'أسيوط', 'سوهاج', 'قنا', 'الأقصر', 'أسوان',
+  'البحر الأحمر', 'الوادي الجديد'
 ];
 
 const PHILOSOPHY_IMAGE = '/file_00000000f7a881f4b475ffb6768b5f12.png';
+const TEACHER_IMAGE = '/IMG-20261103-WA0020.jpg';
 const VODAFONE_CASH_NUMBER = '01064018499';
 const PAYMENT_WHATSAPP = '201064018499';
 const SUPPORT_WHATSAPP = '201061818085';
@@ -88,9 +68,7 @@ export default function App() {
 
     supabase.auth.getSession()
       .then(({ data, error }) => {
-        if (mounted && !error) {
-          setSession(data.session);
-        }
+        if (mounted && !error) setSession(data.session);
       })
       .catch(error => {
         if (mounted) {
@@ -135,7 +113,6 @@ export default function App() {
     try {
       const userId = activeSession.user.id;
       const metadata = activeSession.user.user_metadata || {};
-
       const metadataUpdates = {};
 
       if (metadata.full_name) metadataUpdates.full_name = metadata.full_name;
@@ -275,7 +252,6 @@ export default function App() {
 
   async function login(event) {
     event.preventDefault();
-
     if (busy) return;
 
     setBusy(true);
@@ -463,7 +439,6 @@ export default function App() {
       }
     } catch (error) {
       if (whatsappWindow) whatsappWindow.close();
-
       setMsg('حدث خطأ أثناء تسجيل الطلب: ' + getErrorMessage(error));
     } finally {
       setBusy(false);
@@ -691,22 +666,37 @@ export default function App() {
           </button>
 
           {session && (
-            <button
-              className="outline"
-              disabled={busy}
-              onClick={logout}
-            >
+            <button className="outline" disabled={busy} onClick={logout}>
               خروج
             </button>
           )}
         </nav>
       </header>
 
-      <section className="hero">
-        <p className="eyebrow">تعلم • تدرب • تفوق</p>
-        <h1>فهم الفلسفة يبدأ من هنا</h1>
-        <p>محاضرات منظمة واختبارات ومتابعة لمستواك الدراسي.</p>
-      </section>
+      {tab === 'home' && (
+        <section className="hero">
+          <img
+            src={TEACHER_IMAGE}
+            alt="صورة المدرّس"
+            onError={e => {
+              e.currentTarget.style.display = 'none';
+            }}
+            style={{
+              width: '180px',
+              height: '180px',
+              objectFit: 'cover',
+              borderRadius: '50%',
+              border: '4px solid #d4af37',
+              display: 'block',
+              margin: '0 auto 20px'
+            }}
+          />
+
+          <p className="eyebrow">تعلم • تدرب • تفوق</p>
+          <h1>فهم الفلسفة يبدأ من هنا</h1>
+          <p>محاضرات منظمة واختبارات ومتابعة لمستواك الدراسي.</p>
+        </section>
+      )}
 
       {msg && (
         <div className="notice" role="status">
@@ -1005,7 +995,6 @@ export default function App() {
             <div className="panel">
               <h3>الدفع عن طريق فودافون كاش</h3>
               <p>حوّل قيمة الكورس إلى رقم فودافون كاش التالي:</p>
-
               <h2 dir="ltr">{VODAFONE_CASH_NUMBER}</h2>
 
               <button
@@ -1226,7 +1215,6 @@ function Course({ course }) {
       <h3>{course.title}</h3>
 
       {loading && <p>جارٍ تحميل الدروس...</p>}
-
       {error && <p>تعذر تحميل الدروس: {error}</p>}
 
       {!loading && !error && lessons.length === 0 && (
