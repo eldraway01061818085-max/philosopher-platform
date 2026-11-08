@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { supabase, configured } from './supabase';
 
@@ -247,14 +246,46 @@ export default function App() {
       });
 
       if (error) {
-        setMsg('تعذر إنشاء الحساب: ' + error.message);
+        const errorText = [
+          error.message || '',
+          error.code || '',
+          error.details || '',
+          error.hint || ''
+        ].join(' ').toLowerCase();
+
+        if (
+          error.code === '23505' ||
+          errorText.includes('profiles_phone_unique') ||
+          errorText.includes('duplicate key') ||
+          errorText.includes('unique constraint')
+        ) {
+          setMsg('رقم التليفون ده مستخدم بالفعل في حساب آخر. استخدم رقمًا مختلفًا.');
+        } else {
+          setMsg('تعذر إنشاء الحساب: ' + error.message);
+        }
       } else if (data.session) {
         setMsg('تم إنشاء الحساب وتسجيل الدخول بنجاح.');
       } else {
         setMsg('تم إنشاء الحساب. افحص بريدك الإلكتروني لتأكيد الحساب إذا كان تأكيد البريد مفعّلاً.');
       }
     } catch (error) {
-      setMsg('حدث خطأ أثناء إنشاء الحساب: ' + getErrorMessage(error));
+      const errorText = [
+        error?.message || '',
+        error?.code || '',
+        error?.details || '',
+        error?.hint || ''
+      ].join(' ').toLowerCase();
+
+      if (
+        error?.code === '23505' ||
+        errorText.includes('profiles_phone_unique') ||
+        errorText.includes('duplicate key') ||
+        errorText.includes('unique constraint')
+      ) {
+        setMsg('رقم التليفون ده مستخدم بالفعل في حساب آخر. استخدم رقمًا مختلفًا.');
+      } else {
+        setMsg('حدث خطأ أثناء إنشاء الحساب: ' + getErrorMessage(error));
+      }
     } finally {
       setBusy(false);
     }
@@ -1245,4 +1276,4 @@ function Course({ course }) {
       ))}
     </article>
   );
-}
+          }
