@@ -51,6 +51,7 @@ export default function App() {
   const [courses, setCourses] = useState([]);
   const [mySubs, setMySubs] = useState([]);
   const [pending, setPending] = useState([]);
+  const [progressRows, setProgressRows] = useState([]);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -109,6 +110,7 @@ export default function App() {
       setProfile(null);
       setMySubs([]);
       setPending([]);
+      setProgressRows([]);
     }
   }, [session]);
 
@@ -143,7 +145,8 @@ export default function App() {
 
       const [
         { data: profileData, error: profileError },
-        { data: subs, error: subsError }
+        { data: subs, error: subsError },
+        { data: progress, error: progressError }
       ] = await Promise.all([
         supabase.from('profiles')
           .select('*')
@@ -153,7 +156,11 @@ export default function App() {
         supabase.from('subscriptions')
           .select('*, courses(title,grade,price)')
           .eq('student_id', userId)
-          .order('created_at', { ascending: false })
+          .order('created_at', { ascending: false }),
+
+        supabase.from('course_progress')
+          .select('id,student_id,course_id,lesson_id,completed_at')
+          .eq('student_id', userId)
       ]);
 
       if (profileError) {
@@ -175,6 +182,13 @@ export default function App() {
         setMsg('تعذر تحميل الاشتراكات: ' + subsError.message);
       } else {
         setMySubs(subs || []);
+      }
+
+      if (progressError) {
+        setProgressRows([]);
+        setMsg('تعذر تحميل تقدم الدروس: ' + progressError.message);
+      } else {
+        setProgressRows(progress || []);
       }
     } catch (error) {
       setMsg('حدث خطأ أثناء تحميل بيانات الحساب: ' + getErrorMessage(error));
@@ -214,6 +228,68 @@ export default function App() {
       }
     } catch (error) {
       setMsg('حدث خطأ أثناء تحميل الطلبات: ' + getErrorMessage(error));
+    }
+  }
+
+  async function markLessonViewed(courseId, lessonId) {
+    if (!session?.user?.id) {
+      setMsg('سجّل الدخول أولاً.');
+      return;
+    }
+
+    const hasApprovedSubscription = mySubs.some(
+      s => s.course_id === courseId && s.status === 'approved'
+    );
+
+    if (!hasApprovedSubscription) {
+      setMsg('هذا الدرس متاح للطلاب المشتركين في الكورس فقط.');
+      return;
+    }
+
+    const alreadyDone = progressRows.some(
+      row => row.lesson_id === lessonId && row.course_id === courseId
+    );
+
+    if (alreadyDone) {
+      setMsg('تم تسجيل مشاهدة هذا الدرس من قبل.');
+      return;
+    }
+
+    setBusy(true);
+    setMsg('');
+
+    try {
+      const { error } = await supabase.from('course_progress').insert({
+        student_id: session.user.id,
+        course_id: courseId,
+        lesson_id: lessonId
+      });
+
+      if (error && error.code !== '23505') {
+        setMsg('تعذر تسجيل مشاهدة الدرس: ' + error.message);
+        return;
+      }
+
+      setProgressRows(prev => {
+        if (prev.some(row => row.lesson_id === lessonId)) {
+          return prev;
+        }
+
+        return [
+          ...prev,
+          {
+            student_id: session.user.id,
+            course_id: courseId,
+            lesson_id: lessonId
+          }
+        ];
+      });
+
+      setMsg('تم تسجيل الدرس كمكتمل بنجاح.');
+    } catch (error) {
+      setMsg('حدث خطأ أثناء تسجيل مشاهدة الدرس: ' + getErrorMessage(error));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -695,7 +771,7 @@ export default function App() {
           <button onClick={() => setTab('home')}>الرئيسية</button>
 
           {session && (
-            <button onClick={() => setTab('dashboard')}>لوحتي</button>
+            <button onClick={() => setTab('dashboard')}>حسابي</button>
           )}
 
           {isAdmin && (
@@ -965,7 +1041,12 @@ export default function App() {
             {session && approvedCourseIds.includes(viewedCourse.id) ? (
               <>
                 <p>اشتراكك في هذا الكورس مفعّل. يمكنك مشاهدة الدروس.</p>
-                <Course course={viewedCourse} />
+                <Course
+                  course={viewedCourse}
+                  progressRows={progressRows}
+                  onMarkViewed={markLessonViewed}
+                  busy={busy}
+                />
               </>
             ) : (
               <>
@@ -984,8 +1065,35 @@ export default function App() {
 
       {tab === 'dashboard' && session && (
         <section className="content">
-          <h2>لوحة الطالب</h2>
-          <p>مرحباً {profile?.full_name || session.user.email}</p>
+          <h2>حسابي</h2>
+
+          <article className="panel">
+            <h3>بياناتي الشخصية</h3>
+
+            <p>
+              **الاسم بالكامل:** {profile?.full_name || session.user.user_metadata?.full_name || 'غير مسجل'}
+            </p>
+
+            <p>
+              **البريد الإلكتروني:** {profile?.email || session.user.email || 'غير مسجل'}
+            </p>
+
+            <p>
+              **رقم هاتف الطالب:** {profile?.phone || session.user.user_metadata?.phone || 'غير مسجل'}
+            </p>
+
+            <p>
+              **رقم ولي الأمر:** {profile?.guardian_phone || session.user.user_metadata?.guardian_phone || 'غير مسجل'}
+            </p>
+
+            <p>
+              **المحافظة:** {profile?.governorate || session.user.user_metadata?.governorate || 'غير مسجلة'}
+            </p>
+
+            <p>
+              **الصف الدراسي:** {profile?.grade || session.user.user_metadata?.grade || 'غير مسجل'}
+            </p>
+          </article>
 
           <h3>اشتراكاتي</h3>
 
@@ -1066,7 +1174,12 @@ export default function App() {
             .filter(c => approvedCourseIds.includes(c.id))
             .map(c => (
               <div key={c.id}>
-                <Course course={c} />
+                <Course
+                  course={c}
+                  progressRows={progressRows}
+                  onMarkViewed={markLessonViewed}
+                  busy={busy}
+                />
               </div>
             ))}
         </section>
@@ -1211,7 +1324,7 @@ export default function App() {
   );
 }
 
-function Course({ course }) {
+function Course({ course, progressRows = [], onMarkViewed, busy }) {
   const [lessons, setLessons] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -1251,9 +1364,53 @@ function Course({ course }) {
     };
   }, [course.id]);
 
+  const completedIds = new Set(
+    progressRows
+      .filter(p => p.course_id === course.id)
+      .map(p => p.lesson_id)
+  );
+
+  const completedCount = lessons.filter(
+    lesson => completedIds.has(lesson.id)
+  ).length;
+
+  const percent = lessons.length
+    ? Math.round((completedCount / lessons.length) * 100)
+    : 0;
+
   return (
     <article className="panel">
       <h3>{course.title}</h3>
+
+      {!loading && !error && lessons.length > 0 && (
+        <div style={{
+          margin: '15px 0',
+          padding: '15px',
+          background: '#f8f8f8',
+          borderRadius: '12px'
+        }}>
+          <b>تقدمك في الكورس: {percent}%</b>
+
+          <p>
+            {completedCount} من {lessons.length} دروس مكتملة
+          </p>
+
+          <div style={{
+            height: '10px',
+            background: '#e5e5e5',
+            borderRadius: '20px',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              height: '100%',
+              width: `${percent}%`,
+              background: '#d4af37',
+              borderRadius: '20px',
+              transition: 'width 0.3s'
+            }} />
+          </div>
+        </div>
+      )}
 
       {loading && <p>جارٍ تحميل الدروس...</p>}
       {error && <p>تعذر تحميل الدروس: {error}</p>}
@@ -1262,18 +1419,51 @@ function Course({ course }) {
         <p>لا توجد دروس مضافة لهذا الكورس بعد.</p>
       )}
 
-      {lessons.map(lesson => (
-        <p key={lesson.id}>
-          ▶ {lesson.title} —{' '}
-          <a
-            href={lesson.video_url}
-            target="_blank"
-            rel="noopener noreferrer"
+      {lessons.map(lesson => {
+        const completed = completedIds.has(lesson.id);
+
+        return (
+          <div
+            key={lesson.id}
+            className="item"
+            style={{
+              padding: '12px',
+              marginBottom: '12px',
+              borderBottom: '1px solid #eee'
+            }}
           >
-            مشاهدة الدرس
-          </a>
-        </p>
-      ))}
+            <p>▶ {lesson.title}</p>
+
+            <a
+              href={lesson.video_url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              مشاهدة الدرس
+            </a>
+
+            <div style={{ marginTop: '10px' }}>
+              {completed ? (
+                <button
+                  type="button"
+                  className="outline"
+                  disabled
+                >
+                  تمت المشاهدة ✓
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onMarkViewed(course.id, lesson.id)}
+                >
+                  تمت المشاهدة
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </article>
   );
-          }
+        }
