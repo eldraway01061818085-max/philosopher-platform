@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { supabase, configured } from './supabase';
 
@@ -425,14 +426,28 @@ export default function App() {
   }
 
   function subscribeCourse(course) {
-    setSelectedCourse(course.id);
-
     if (!session) {
+      setSelectedCourse(course.id);
       setTab('home');
       setMsg('سجّل الدخول أو أنشئ حسابًا أولاً، وسيتم اختيار الكورس تلقائيًا.');
       return;
     }
 
+    const existingSubscription = mySubs.find(
+      s => s.course_id === course.id && s.status !== 'rejected'
+    );
+
+    if (existingSubscription?.status === 'approved') {
+      browseCourse(course);
+      return;
+    }
+
+    if (existingSubscription?.status === 'pending') {
+      setMsg('طلب اشتراكك في هذا الكورس قيد المراجعة.');
+      return;
+    }
+
+    setSelectedCourse(course.id);
     setTab('dashboard');
     setMsg('تم اختيار كورس ' + course.title + '. أكمل طلب الاشتراك بالأسفل.');
   }
@@ -992,12 +1007,34 @@ export default function App() {
                       تصفح الكورس
                     </button>
 
-                    <button
-                      className="outline"
-                      onClick={() => subscribeCourse(c)}
-                    >
-                      اشتراك في الكورس
-                    </button>
+                    {session && mySubs.some(
+                      s => s.course_id === c.id && s.status === 'approved'
+                    ) ? (
+                      <p style={{
+                        color: '#16803c',
+                        fontWeight: 'bold',
+                        textAlign: 'center'
+                      }}>
+                        أنت مشترك في هذا الكورس ✓
+                      </p>
+                    ) : session && mySubs.some(
+                      s => s.course_id === c.id && s.status === 'pending'
+                    ) ? (
+                      <p style={{
+                        color: '#a87916',
+                        fontWeight: 'bold',
+                        textAlign: 'center'
+                      }}>
+                        طلبك قيد المراجعة
+                      </p>
+                    ) : (
+                      <button
+                        className="outline"
+                        onClick={() => subscribeCourse(c)}
+                      >
+                        اشتراك في الكورس
+                      </button>
+                    )}
                   </div>
                 </article>
               ))}
@@ -1466,4 +1503,4 @@ function Course({ course, progressRows = [], onMarkViewed, busy }) {
       })}
     </article>
   );
-        }
+}
