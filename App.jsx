@@ -1179,29 +1179,120 @@ export default function App() {
           <article className="panel">
             <h3>بياناتي الشخصية</h3>
 
-            <p>
-              **الاسم بالكامل:** {profile?.full_name || session.user.user_metadata?.full_name || 'غير مسجل'}
-            </p>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '12px',
+              marginTop: '16px'
+            }}>
+              <div style={{
+                background: 'linear-gradient(135deg, #fffaf0, #f4ead0)',
+                border: '1px solid #e6d5a8',
+                borderRadius: '14px',
+                padding: '15px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '7px',
+                minWidth: 0
+              }}>
+                <span style={{ color: '#947326', fontSize: '13px', fontWeight: 'bold' }}>
+                  الاسم بالكامل
+                </span>
+                <strong style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
+                  {profile?.full_name || session.user.user_metadata?.full_name || 'غير مسجل'}
+                </strong>
+              </div>
 
-            <p>
-              **البريد الإلكتروني:** {profile?.email || session.user.email || 'غير مسجل'}
-            </p>
+              <div style={{
+                background: 'linear-gradient(135deg, #f0f7ff, #e2edfa)',
+                border: '1px solid #c9dced',
+                borderRadius: '14px',
+                padding: '15px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '7px',
+                minWidth: 0
+              }}>
+                <span style={{ color: '#39719c', fontSize: '13px', fontWeight: 'bold' }}>
+                  البريد الإلكتروني
+                </span>
+                <strong dir="ltr" style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
+                  {profile?.email || session.user.email || 'غير مسجل'}
+                </strong>
+              </div>
 
-            <p>
-              **رقم هاتف الطالب:** {profile?.phone || session.user.user_metadata?.phone || 'غير مسجل'}
-            </p>
+              <div style={{
+                background: 'linear-gradient(135deg, #effaf3, #e0f3e7)',
+                border: '1px solid #c6e5d0',
+                borderRadius: '14px',
+                padding: '15px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '7px',
+                minWidth: 0
+              }}>
+                <span style={{ color: '#398052', fontSize: '13px', fontWeight: 'bold' }}>
+                  رقم هاتف الطالب
+                </span>
+                <strong dir="ltr" style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
+                  {profile?.phone || session.user.user_metadata?.phone || 'غير مسجل'}
+                </strong>
+              </div>
 
-            <p>
-              **رقم ولي الأمر:** {profile?.guardian_phone || session.user.user_metadata?.guardian_phone || 'غير مسجل'}
-            </p>
+              <div style={{
+                background: 'linear-gradient(135deg, #fff3f0, #fce5df)',
+                border: '1px solid #edcfc6',
+                borderRadius: '14px',
+                padding: '15px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '7px',
+                minWidth: 0
+              }}>
+                <span style={{ color: '#a65e4b', fontSize: '13px', fontWeight: 'bold' }}>
+                  رقم ولي الأمر
+                </span>
+                <strong dir="ltr" style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
+                  {profile?.guardian_phone || session.user.user_metadata?.guardian_phone || 'غير مسجل'}
+                </strong>
+              </div>
 
-            <p>
-              **المحافظة:** {profile?.governorate || session.user.user_metadata?.governorate || 'غير مسجلة'}
-            </p>
+              <div style={{
+                background: 'linear-gradient(135deg, #f5f0ff, #eae2fa)',
+                border: '1px solid #d8cbed',
+                borderRadius: '14px',
+                padding: '15px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '7px',
+                minWidth: 0
+              }}>
+                <span style={{ color: '#7855a5', fontSize: '13px', fontWeight: 'bold' }}>
+                  المحافظة
+                </span>
+                <strong style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
+                  {profile?.governorate || session.user.user_metadata?.governorate || 'غير مسجلة'}
+                </strong>
+              </div>
 
-            <p>
-              **الصف الدراسي:** {profile?.grade || session.user.user_metadata?.grade || 'غير مسجل'}
-            </p>
+              <div style={{
+                background: 'linear-gradient(135deg, #eef8fa, #dff0f2)',
+                border: '1px solid #c6e1e5',
+                borderRadius: '14px',
+                padding: '15px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '7px',
+                minWidth: 0
+              }}>
+                <span style={{ color: '#397b85', fontSize: '13px', fontWeight: 'bold' }}>
+                  الصف الدراسي
+                </span>
+                <strong style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
+                  {profile?.grade || session.user.user_metadata?.grade || 'غير مسجل'}
+                </strong>
+              </div>
+            </div>
           </article>
 
           <h3>اشتراكاتي</h3>
