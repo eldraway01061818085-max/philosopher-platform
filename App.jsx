@@ -55,6 +55,7 @@ export default function App() {
   const [progressRows, setProgressRows] = useState([]);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -782,28 +783,99 @@ export default function App() {
           </div>
         </div>
 
-        <nav>
-          <button onClick={() => setTab('home')}>الرئيسية</button>
-
-          {session && (
-            <button onClick={() => setTab('dashboard')}>حسابي</button>
-          )}
-
-          {isAdmin && (
-            <button onClick={() => setTab('admin')}>الإدارة</button>
-          )}
-
-          <button className="outline" onClick={openSupport}>
-            الدعم الفني
-          </button>
-
-          {session && (
-            <button className="outline" disabled={busy} onClick={logout}>
-              خروج
-            </button>
-          )}
-        </nav>
+        <button
+          type="button"
+          className="menu-toggle"
+          onClick={() => setMenuOpen(true)}
+          aria-label="فتح القائمة"
+          aria-expanded={menuOpen}
+        >
+          ☰
+        </button>
       </header>
+
+      {menuOpen && (
+        <div
+          className="menu-overlay"
+          onClick={() => setMenuOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`side-menu ${menuOpen ? 'open' : ''}`}
+        aria-hidden={!menuOpen}
+      >
+        <div className="side-menu-header">
+          <b>القائمة الرئيسية</b>
+          <button
+            type="button"
+            className="menu-close"
+            onClick={() => setMenuOpen(false)}
+            aria-label="إغلاق القائمة"
+          >
+            ×
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setTab('home');
+            setMenuOpen(false);
+          }}
+        >
+          الرئيسية
+        </button>
+
+        {session && (
+          <button
+            type="button"
+            onClick={() => {
+              setTab('dashboard');
+              setMenuOpen(false);
+            }}
+          >
+            حسابي
+          </button>
+        )}
+
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => {
+              setTab('admin');
+              setMenuOpen(false);
+            }}
+          >
+            الإدارة
+          </button>
+        )}
+
+        <button
+          type="button"
+          className="outline"
+          onClick={() => {
+            setMenuOpen(false);
+            openSupport();
+          }}
+        >
+          الدعم الفني
+        </button>
+
+        {session && (
+          <button
+            type="button"
+            className="outline"
+            disabled={busy}
+            onClick={() => {
+              setMenuOpen(false);
+              logout();
+            }}
+          >
+            خروج
+          </button>
+        )}
+      </aside>
 
       {tab === 'home' && (
         <section className="hero">
