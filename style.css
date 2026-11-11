@@ -442,3 +442,82 @@ footer {
     width: 280px;
   }
 }
+
+/* تصميم بطاقة البيانات الشخصية */
+.profile-card {
+  background: linear-gradient(145deg, #ffffff, #f7f8fc);
+  border: 1px solid #e2e6ef;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 8px 25px rgba(16, 26, 50, 0.06);
+}
+
+.profile-title {
+  color: #101a32;
+  font-size: 24px;
+  margin: 0 0 24px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e5c36d;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px;
+}
+
+.profile-field {
+  background: #f1f3f8;
+  border: 1px solid #e1e5ed;
+  border-right: 4px solid #c49a3a;
+  border-radius: 13px;
+  padding: 16px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  transition: .2s ease;
+}
+
+.profile-field:hover {
+  background: #fff8e8;
+  border-color: #d8b45a;
+  transform: translateY(-2px);
+}
+
+.profile-field span {
+  color: #8a6720;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.profile-field strong {
+  color: #101a32;
+  font-size: 16px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+
+@media (max-width: 600px) {
+  .profile-card {
+    padding: 17px;
+  }
+
+  .profile-title {
+    font-size: 21px;
+  }
+
+  .profile-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .profile-field {
+    padding: 14px;
+  }
+
+  .profile-field strong {
+    font-size: 15px;
+  }
+}
