@@ -30,13 +30,8 @@ const SUPPORT_WHATSAPP = '201061818085';
 function getCourseImage(course) {
   const title = (course?.title || '').trim();
 
-  if (/فلسفة|منطق/.test(title)) {
-    return PHILOSOPHY_IMAGE;
-  }
-
-  if (/علم\s*نفس/.test(title)) {
-    return PSYCHOLOGY_IMAGE;
-  }
+  if (/فلسفة|منطق/.test(title)) return PHILOSOPHY_IMAGE;
+  if (/علم\s*نفس/.test(title)) return PSYCHOLOGY_IMAGE;
 
   return '';
 }
@@ -243,7 +238,7 @@ export default function App() {
       s => s.course_id === courseId && s.status === 'approved'
     );
 
-    if (!hasApprovedSubscription) {
+    if (!hasApprovedSubscription && !isAdmin) {
       setMsg('هذا الدرس متاح للطلاب المشتركين في الكورس فقط.');
       return;
     }
@@ -273,9 +268,7 @@ export default function App() {
       }
 
       setProgressRows(prev => {
-        if (prev.some(row => row.lesson_id === lessonId)) {
-          return prev;
-        }
+        if (prev.some(row => row.lesson_id === lessonId)) return prev;
 
         return [
           ...prev,
@@ -1147,14 +1140,17 @@ export default function App() {
             <h2>{viewedCourse.title}</h2>
             <h3>{viewedCourse.price} جنيه</h3>
 
-            {session && approvedCourseIds.includes(viewedCourse.id) ? (
+            {session && (
+              approvedCourseIds.includes(viewedCourse.id) || isAdmin
+            ) ? (
               <>
-                <p>اشتراكك في هذا الكورس مفعّل. يمكنك مشاهدة الدروس.</p>
+                <p>اشتراكك في هذا الكورس مفعّل. يمكنك مشاهدة الدروس المتاحة.</p>
                 <Course
                   course={viewedCourse}
                   progressRows={progressRows}
                   onMarkViewed={markLessonViewed}
                   busy={busy}
+                  isAdmin={isAdmin}
                 />
               </>
             ) : (
@@ -1379,6 +1375,7 @@ export default function App() {
                   progressRows={progressRows}
                   onMarkViewed={markLessonViewed}
                   busy={busy}
+                  isAdmin={isAdmin}
                 />
               </div>
             ))}
@@ -1524,10 +1521,17 @@ export default function App() {
   );
 }
 
-function Course({ course, progressRows = [], onMarkViewed, busy }) {
+function Course({
+  course,
+  progressRows = [],
+  onMarkViewed,
+  busy,
+  isAdmin = false
+}) {
   const [lessons, setLessons] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -1537,10 +1541,11 @@ function Course({ course, progressRows = [], onMarkViewed, busy }) {
       setError('');
 
       try {
-        const { data, error: queryError } = await supabase.from('lessons')
-          .select('id,title,video_url,sort_order')
-          .eq('course_id', course.id)
-          .order('sort_order');
+        // تحميل الدروس من الدالة الآمنة بدلاً من القراءة المباشرة للجدول.
+        const { data, error: queryError } = await supabase.rpc(
+          'get_course_lessons_secure',
+          { p_course_id: course.id }
+        );
 
         if (!active) return;
 
@@ -1548,7 +1553,13 @@ function Course({ course, progressRows = [], onMarkViewed, busy }) {
           setError(queryError.message);
           setLessons([]);
         } else {
-          setLessons(data || []);
+          const normalizedLessons = (data || []).map(row => ({
+            ...row,
+            id: row.lesson_id,
+            is_unlocked: Boolean(row.is_unlocked)
+          }));
+
+          setLessons(normalizedLessons);
         }
       } catch (error) {
         if (active) setError(getErrorMessage(error));
@@ -1562,7 +1573,7 @@ function Course({ course, progressRows = [], onMarkViewed, busy }) {
     return () => {
       active = false;
     };
-  }, [course.id]);
+  }, [course.id, refreshKey]);
 
   const completedIds = new Set(
     progressRows
@@ -1577,6 +1588,10 @@ function Course({ course, progressRows = [], onMarkViewed, busy }) {
   const percent = lessons.length
     ? Math.round((completedCount / lessons.length) * 100)
     : 0;
+
+  function refreshLessons() {
+    setRefreshKey(value => value + 1);
+  }
 
   return (
     <article className="panel">
@@ -1613,14 +1628,28 @@ function Course({ course, progressRows = [], onMarkViewed, busy }) {
       )}
 
       {loading && <p>جارٍ تحميل الدروس...</p>}
-      {error && <p>تعذر تحميل الدروس: {error}</p>}
+
+      {error && (
+        <div className="notice" role="alert">
+          تعذر تحميل الدروس: {error}
+          <button
+            type="button"
+            className="outline"
+            onClick={refreshLessons}
+            style={{ marginRight: '10px' }}
+          >
+            إعادة المحاولة
+          </button>
+        </div>
+      )}
 
       {!loading && !error && lessons.length === 0 && (
         <p>لا توجد دروس مضافة لهذا الكورس بعد.</p>
       )}
 
-      {lessons.map(lesson => {
+      {lessons.map((lesson, index) => {
         const completed = completedIds.has(lesson.id);
+        const unlocked = isAdmin || lesson.is_unlocked;
 
         return (
           <div
@@ -1629,41 +1658,378 @@ function Course({ course, progressRows = [], onMarkViewed, busy }) {
             style={{
               padding: '12px',
               marginBottom: '12px',
-              borderBottom: '1px solid #eee'
+              borderBottom: '1px solid #eee',
+              opacity: unlocked ? 1 : 0.75
             }}
           >
-            <p>▶ {lesson.title}</p>
+            <p>
+              {unlocked ? '▶' : '🔒'} {lesson.title}
+            </p>
 
-            <a
-              href={lesson.video_url}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              مشاهدة الدرس
-            </a>
+            {unlocked ? (
+              <>
+                {lesson.video_url ? (
+                  <a
+                    href={lesson.video_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    مشاهدة الدرس
+                  </a>
+                ) : (
+                  <p>رابط الفيديو غير متاح حالياً.</p>
+                )}
 
-            <div style={{ marginTop: '10px' }}>
-              {completed ? (
-                <button
-                  type="button"
-                  className="outline"
-                  disabled
-                >
-                  تمت المشاهدة ✓
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onMarkViewed(course.id, lesson.id)}
-                >
-                  تمت المشاهدة
-                </button>
-              )}
-            </div>
+                <div style={{ marginTop: '10px' }}>
+                  {completed ? (
+                    <button
+                      type="button"
+                      className="outline"
+                      disabled
+                    >
+                      تمت المشاهدة ✓
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onMarkViewed(course.id, lesson.id)}
+                    >
+                      تمت المشاهدة
+                    </button>
+                  )}
+                </div>
+
+                <QuizPanel
+                  lesson={lesson}
+                  onPassed={refreshLessons}
+                />
+              </>
+            ) : (
+              <div style={{
+                marginTop: '10px',
+                padding: '12px',
+                background: '#f4f4f4',
+                borderRadius: '10px',
+                color: '#777'
+              }}>
+                <b>هذا الدرس مغلق حالياً</b>
+                <p>
+                  أكمل اختبار الدرس السابق بنجاح لفتح هذا الدرس.
+                </p>
+              </div>
+            )}
           </div>
         );
       })}
+
+      <button
+        type="button"
+        className="outline"
+        onClick={refreshLessons}
+        disabled={loading}
+      >
+        تحديث حالة الدروس
+      </button>
     </article>
+  );
+}
+
+function QuizPanel({ lesson, onPassed }) {
+  const [quiz, setQuiz] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [answers, setAnswers] = useState({});
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [opened, setOpened] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadQuiz() {
+      setLoading(true);
+      setError('');
+
+      try {
+        const { data, error: quizError } = await supabase
+          .from('quizzes')
+          .select('id,title,attempts_limit,passing_score')
+          .eq('lesson_id', lesson.id)
+          .eq('is_active', true)
+          .maybeSingle();
+
+        if (!active) return;
+
+        if (quizError) {
+          setError(quizError.message);
+        } else {
+          setQuiz(data || null);
+        }
+      } catch (error) {
+        if (active) setError(getErrorMessage(error));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    loadQuiz();
+
+    return () => {
+      active = false;
+    };
+  }, [lesson.id]);
+
+  async function openQuiz() {
+    if (!quiz || loading || submitting) return;
+
+    setOpened(true);
+    setError('');
+    setResult(null);
+    setAnswers({});
+
+    try {
+      const { data, error: questionsError } = await supabase.rpc(
+        'get_quiz_questions',
+        { p_quiz_id: quiz.id }
+      );
+
+      if (questionsError) {
+        setError(questionsError.message);
+        return;
+      }
+
+      // الدالة قد تعيد الأسئلة كمصفوفة أو كائن يحتوي على questions.
+      let rows = [];
+
+      if (Array.isArray(data)) {
+        rows = data;
+      } else if (Array.isArray(data?.questions)) {
+        rows = data.questions;
+      } else if (data && data.question_text) {
+        rows = [data];
+      }
+
+      const validQuestions = rows
+        .filter(row => row && row.id && row.question_text)
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+      if (validQuestions.length === 0) {
+        setError('لا توجد أسئلة متاحة في هذا الاختبار حالياً.');
+        setQuestions([]);
+        return;
+      }
+
+      setQuestions(validQuestions);
+    } catch (error) {
+      setError(getErrorMessage(error));
+    }
+  }
+
+  function chooseAnswer(questionId, optionIndex) {
+    setAnswers(prev => ({
+      ...prev,
+      [questionId]: optionIndex
+    }));
+  }
+
+  async function submitQuiz(event) {
+    event.preventDefault();
+
+    if (submitting) return;
+
+    if (questions.length === 0) {
+      setError('لا توجد أسئلة لإرسالها.');
+      return;
+    }
+
+    if (Object.keys(answers).length !== questions.length) {
+      setError('أجب عن جميع الأسئلة أولاً.');
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
+
+    try {
+      const { data, error: submitError } = await supabase.rpc(
+        'submit_quiz',
+        {
+          p_quiz_id: quiz.id,
+          p_answers: answers
+        }
+      );
+
+      if (submitError) {
+        setError(submitError.message);
+        return;
+      }
+
+      const quizResult = Array.isArray(data) ? data[0] : data;
+      setResult(quizResult || null);
+
+      if (quizResult?.passed) {
+        onPassed?.();
+      }
+    } catch (error) {
+      setError(getErrorMessage(error));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading) return <p>جارٍ التحقق من اختبار الدرس...</p>;
+
+  if (error && !opened) {
+    return (
+      <p style={{ color: '#b42318' }}>
+        تعذر تحميل الاختبار: {error}
+      </p>
+    );
+  }
+
+  if (!quiz) return null;
+
+  return (
+    <div style={{
+      marginTop: '15px',
+      padding: '15px',
+      border: '1px solid #e5d6ad',
+      borderRadius: '12px',
+      background: '#fffdf7'
+    }}>
+      <h4>{quiz.title || 'اختبار الدرس'}</h4>
+
+      {!opened && (
+        <button type="button" onClick={openQuiz}>
+          بدء اختبار الدرس
+        </button>
+      )}
+
+      {opened && error && (
+        <p style={{ color: '#b42318' }}>{error}</p>
+      )}
+
+      {opened && questions.length > 0 && !result && (
+        <form onSubmit={submitQuiz}>
+          {questions.map((question, questionIndex) => {
+            const options = Array.isArray(question.options)
+              ? question.options
+              : [];
+
+            return (
+              <div
+                key={question.id}
+                style={{
+                  margin: '15px 0',
+                  padding: '12px',
+                  background: '#fff',
+                  borderRadius: '10px'
+                }}
+              >
+                <b>
+                  {questionIndex + 1}. {question.question_text}
+                </b>
+
+                <div style={{
+                  display: 'grid',
+                  gap: '8px',
+                  marginTop: '10px'
+                }}>
+                  {options.map((option, optionIndex) => (
+                    <label
+                      key={optionIndex}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name={`question-${question.id}`}
+                        checked={answers[question.id] === optionIndex}
+                        onChange={() => chooseAnswer(question.id, optionIndex)}
+                      />
+                      <span>
+                        {typeof option === 'string'
+                          ? option
+                          : option?.text || String(option)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          <button
+            type="submit"
+            disabled={submitting}
+          >
+            {submitting ? 'جارٍ تصحيح الاختبار...' : 'إرسال الإجابات'}
+          </button>
+        </form>
+      )}
+
+      {result && (
+        <div style={{
+          marginTop: '15px',
+          padding: '15px',
+          borderRadius: '10px',
+          background: result.passed ? '#eaf7ee' : '#fff0ed',
+          color: result.passed ? '#176b35' : '#a12b20'
+        }}>
+          <h4>
+            {result.passed ? 'مبروك! نجحت في الاختبار ✓' : 'لم تحقق درجة النجاح'}
+          </h4>
+
+          <p>
+            النتيجة: {result.score} من {result.total}
+          </p>
+
+          <p>
+            النسبة: {result.percentage}%
+          </p>
+
+          <p>
+            المحاولة: {result.attempt_number} من {result.attempts_limit}
+          </p>
+
+          <p>
+            المحاولات المتبقية: {result.attempts_remaining}
+          </p>
+
+          {result.passed ? (
+            <p>
+              {result.next_lesson_unlocked
+                ? 'تم فتح الدرس التالي بنجاح. حدّث قائمة الدروس إذا لم يظهر مفتوحاً.'
+                : 'تم اجتياز الاختبار بنجاح.'}
+            </p>
+          ) : (
+            <p>
+              يمكنك المحاولة مرة أخرى إذا كانت لديك محاولات متبقية.
+            </p>
+          )}
+
+          <button
+            type="button"
+            className="outline"
+            onClick={() => {
+              setResult(null);
+              setAnswers({});
+              setQuestions([]);
+              setOpened(false);
+              setError('');
+            }}
+            disabled={result.passed || result.attempts_remaining <= 0}
+          >
+            إعادة المحاولة
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
