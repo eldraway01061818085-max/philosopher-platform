@@ -1302,6 +1302,18 @@ export default function App() {
             </section>
           )}
 
+          {session && profile?.role === 'student' && (
+            <section className="content">
+              <StudentProgressCard
+                userId={session.user.id}
+                approvedCourses={courses.filter(c =>
+                  approvedCourseIds.includes(c.id)
+                )}
+                progressRows={progressRows}
+              />
+            </section>
+          )}
+
           <section className="content">
             <h2>الكورسات المتاحة</h2>
 
@@ -1422,16 +1434,6 @@ export default function App() {
       {tab === 'dashboard' && session && (
         <section className="content">
           <h2>حسابي</h2>
-
-          {!isAdmin && (
-            <StudentProgressCard
-              userId={session.user.id}
-              approvedCourses={courses.filter(c =>
-                approvedCourseIds.includes(c.id)
-              )}
-              progressRows={progressRows}
-            />
-          )}
 
           <article className="panel">
             <h3>بياناتي الشخصية</h3>
