@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { supabase, configured } from './supabase';
 
@@ -1541,7 +1540,6 @@ function Course({
       setError('');
 
       try {
-        // تحميل الدروس من الدالة الآمنة بدلاً من القراءة المباشرة للجدول.
         const { data, error: queryError } = await supabase.rpc(
           'get_course_lessons_secure',
           { p_course_id: course.id }
@@ -1753,22 +1751,25 @@ function QuizPanel({ lesson, onPassed }) {
       setError('');
 
       try {
-        const { data, error: quizError } = await supabase
-          .from('quizzes')
-          .select('id,title,attempts_limit,passing_score')
-          .eq('lesson_id', lesson.id)
-          .eq('is_active', true)
-          .maybeSingle();
+        // استخدام الدالة الآمنة بدلاً من القراءة المباشرة من جدول quizzes.
+        const { data, error: quizError } = await supabase.rpc(
+          'get_lesson_quiz_secure',
+          { p_lesson_id: lesson.id }
+        );
 
         if (!active) return;
 
         if (quizError) {
           setError(quizError.message);
+          setQuiz(null);
         } else {
           setQuiz(data || null);
         }
       } catch (error) {
-        if (active) setError(getErrorMessage(error));
+        if (active) {
+          setError(getErrorMessage(error));
+          setQuiz(null);
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -1800,7 +1801,6 @@ function QuizPanel({ lesson, onPassed }) {
         return;
       }
 
-      // الدالة قد تعيد الأسئلة كمصفوفة أو كائن يحتوي على questions.
       let rows = [];
 
       if (Array.isArray(data)) {
