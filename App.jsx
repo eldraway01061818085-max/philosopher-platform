@@ -57,6 +57,24 @@ function normalizeQuizList(data) {
   return [];
 }
 
+function normalizeLessons(data) {
+  let value = data;
+
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.lessons)) return value.lessons;
+  if (Array.isArray(value?.data)) return value.data;
+
+  return [];
+}
+
 function createEmptyQuestion() {
   return {
     question_text: '',
@@ -278,7 +296,7 @@ export default function App() {
         return;
       }
 
-      const rows = Array.isArray(data) ? data : [];
+      const rows = normalizeLessons(data);
       setAdminQuizLessons(rows.map(row => ({
         ...row,
         id: row.lesson_id || row.id
@@ -1405,6 +1423,16 @@ export default function App() {
         <section className="content">
           <h2>حسابي</h2>
 
+          {!isAdmin && (
+            <StudentProgressCard
+              userId={session.user.id}
+              approvedCourses={courses.filter(c =>
+                approvedCourseIds.includes(c.id)
+              )}
+              progressRows={progressRows}
+            />
+          )}
+
           <article className="panel">
             <h3>بياناتي الشخصية</h3>
 
@@ -1919,6 +1947,466 @@ export default function App() {
   );
 }
 
+// ============================================
+// لوحة إحصائيات إنجاز الطالب
+// ============================================
+
+function StudentProgressCard({
+  userId,
+  approvedCourses = [],
+  progressRows = []
+}) {
+  const [stats, setStats] = useState({
+    totalLessons: 0,
+    completedLessons: 0,
+    totalQuizzes: 0,
+    completedQuizzes: 0
+  });
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const courseIdsKey = approvedCourses
+    .map(course => course.id)
+    .filter(Boolean)
+    .sort()
+    .join(',');
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadStudentStats() {
+      setLoading(true);
+      setError('');
+
+      try {
+        const courseIds = courseIdsKey
+          ? courseIdsKey.split(',')
+          : [];
+
+        if (!userId || courseIds.length === 0) {
+          if (active) {
+            setStats({
+              totalLessons: 0,
+              completedLessons: 0,
+              totalQuizzes: 0,
+              completedQuizzes: 0
+            });
+          }
+          return;
+        }
+
+        // تحميل دروس جميع الكورسات المفعّلة للطالب
+        const lessonResults = await Promise.all(
+          courseIds.map(async courseId => {
+            const { data, error: rpcError } = await supabase.rpc(
+              'get_course_lessons_secure',
+              { p_course_id: courseId }
+            );
+
+            if (rpcError) throw rpcError;
+
+            return normalizeLessons(data).map(lesson => ({
+              ...lesson,
+              id: lesson.lesson_id || lesson.id,
+              course_id: lesson.course_id || courseId
+            })).filter(lesson => lesson.id);
+          })
+        );
+
+        if (!active) return;
+
+        const allLessons = lessonResults.flat();
+
+        // حساب الدروس المكتملة من سجلات الطالب الفعلية
+        const completedLessonIds = new Set(
+          progressRows
+            .filter(row => courseIds.includes(row.course_id))
+            .map(row => row.lesson_id)
+            .filter(Boolean)
+        );
+
+        const completedLessons = allLessons.filter(
+          lesson => completedLessonIds.has(lesson.id)
+        ).length;
+
+        // الاختبارات المتاحة فقط للدروس المفتوحة
+        const unlockedLessons = allLessons.filter(
+          lesson => lesson.is_unlocked === true
+        );
+
+        const quizResults = await Promise.all(
+          unlockedLessons.map(async lesson => {
+            const { data, error: quizError } = await supabase.rpc(
+              'get_lesson_quiz_secure',
+              { p_lesson_id: lesson.id }
+            );
+
+            if (quizError) throw quizError;
+
+            const quizzes = normalizeQuizList(data);
+
+            return quizzes
+              .filter(quiz => quiz?.id)
+              .map(quiz => quiz.id);
+          })
+        );
+
+        if (!active) return;
+
+        // إزالة تكرار الاختبارات
+        const availableQuizIds = [...new Set(quizResults.flat())];
+
+        let completedQuizIds = [];
+
+        // قراءة محاولات الطالب للاختبارات المتاحة فقط
+        if (availableQuizIds.length > 0) {
+          const { data: attempts, error: attemptsError } = await supabase
+            .from('quiz_attempts')
+            .select('quiz_id')
+            .eq('student_id', userId)
+            .in('quiz_id', availableQuizIds);
+
+          if (attemptsError) throw attemptsError;
+
+          completedQuizIds = [
+            ...new Set(
+              (attempts || [])
+                .map(attempt => attempt.quiz_id)
+                .filter(Boolean)
+            )
+          ];
+        }
+
+        if (!active) return;
+
+        setStats({
+          totalLessons: allLessons.length,
+          completedLessons,
+          totalQuizzes: availableQuizIds.length,
+          completedQuizzes: completedQuizIds.length
+        });
+      } catch (error) {
+        if (active) {
+          setError(getErrorMessage(error));
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    loadStudentStats();
+
+    return () => {
+      active = false;
+    };
+  }, [userId, courseIdsKey, progressRows, refreshKey]);
+
+  const remainingLessons = Math.max(
+    0,
+    stats.totalLessons - stats.completedLessons
+  );
+
+  const remainingQuizzes = Math.max(
+    0,
+    stats.totalQuizzes - stats.completedQuizzes
+  );
+
+  const totalItems = stats.totalLessons + stats.totalQuizzes;
+  const completedItems = stats.completedLessons + stats.completedQuizzes;
+
+  const percentage = totalItems > 0
+    ? Math.round((completedItems / totalItems) * 100)
+    : 0;
+
+  return (
+    <article style={{
+      margin: '18px 0 24px',
+      padding: '22px',
+      borderRadius: '22px',
+      background: 'linear-gradient(135deg, #11152f 0%, #21194b 55%, #172b50 100%)',
+      color: '#fff',
+      boxShadow: '0 12px 35px rgba(17, 21, 47, 0.25)',
+      border: '1px solid rgba(130, 150, 255, 0.25)',
+      overflow: 'hidden',
+      position: 'relative'
+    }}>
+      <div style={{
+        position: 'absolute',
+        width: '190px',
+        height: '190px',
+        borderRadius: '50%',
+        background: 'rgba(0, 210, 255, 0.08)',
+        top: '-85px',
+        left: '-65px',
+        pointerEvents: 'none'
+      }} />
+
+      <div style={{
+        position: 'absolute',
+        width: '160px',
+        height: '160px',
+        borderRadius: '50%',
+        background: 'rgba(168, 85, 247, 0.12)',
+        bottom: '-90px',
+        right: '-55px',
+        pointerEvents: 'none'
+      }} />
+
+      <div style={{
+        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '15px',
+        flexWrap: 'wrap',
+        marginBottom: '22px'
+      }}>
+        <div>
+          <div style={{
+            color: '#7ee7ff',
+            fontSize: '13px',
+            fontWeight: 'bold',
+            marginBottom: '7px'
+          }}>
+            إنجازك الدراسي
+          </div>
+
+          <h3 style={{
+            margin: 0,
+            color: '#fff',
+            fontSize: '22px'
+          }}>
+            رحلة تفوقك
+          </h3>
+
+          <p style={{
+            margin: '7px 0 0',
+            color: '#c7cce8',
+            fontSize: '13px'
+          }}>
+            تابع تقدمك في الدروس والاختبارات
+          </p>
+        </div>
+
+        <div style={{
+          fontSize: '38px',
+          filter: 'drop-shadow(0 0 12px rgba(255, 205, 75, 0.35))'
+        }}>
+          🎓
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{
+          padding: '35px 10px',
+          textAlign: 'center',
+          color: '#d6ddff'
+        }}>
+          جارٍ حساب إنجازك الدراسي...
+        </div>
+      ) : error ? (
+        <div style={{
+          padding: '15px',
+          borderRadius: '12px',
+          background: 'rgba(255, 80, 80, 0.12)',
+          border: '1px solid rgba(255, 120, 120, 0.35)',
+          color: '#ffd0d0'
+        }}>
+          <p style={{ marginTop: 0 }}>
+            تعذر تحميل إحصائيات الإنجاز: {error}
+          </p>
+
+          <button
+            type="button"
+            onClick={() => setRefreshKey(value => value + 1)}
+            style={{
+              border: '1px solid #9ba8ff',
+              background: 'transparent',
+              color: '#fff',
+              borderRadius: '9px',
+              padding: '9px 16px',
+              cursor: 'pointer'
+            }}
+          >
+            إعادة المحاولة
+          </button>
+        </div>
+      ) : (
+        <>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: '5px 0 25px'
+          }}>
+            <div style={{
+              width: '155px',
+              height: '155px',
+              borderRadius: '50%',
+              background: `conic-gradient(#35d7ee ${percentage * 3.6}deg, rgba(255,255,255,0.12) 0deg)`,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              boxShadow: '0 0 25px rgba(53, 215, 238, 0.15)'
+            }}>
+              <div style={{
+                width: '132px',
+                height: '132px',
+                borderRadius: '50%',
+                background: '#191b40',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                border: '1px solid rgba(255,255,255,0.12)'
+              }}>
+                <strong style={{
+                  fontSize: '35px',
+                  color: '#fff',
+                  lineHeight: 1.2
+                }}>
+                  {percentage}%
+                </strong>
+
+                <span style={{
+                  color: '#aeb8df',
+                  fontSize: '12px',
+                  marginTop: '5px'
+                }}>
+                  نسبة الإنجاز
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+            gap: '12px'
+          }}>
+            {[
+              {
+                title: 'الدروس المكتملة',
+                value: stats.completedLessons,
+                icon: '📚',
+                color: '#48d6b0',
+                background: 'rgba(33, 190, 145, 0.12)',
+                border: 'rgba(72, 214, 176, 0.3)'
+              },
+              {
+                title: 'الدروس المتبقية',
+                value: remainingLessons,
+                icon: '📖',
+                color: '#70c9ff',
+                background: 'rgba(65, 155, 235, 0.12)',
+                border: 'rgba(112, 201, 255, 0.3)'
+              },
+              {
+                title: 'الاختبارات المكتملة',
+                value: stats.completedQuizzes,
+                icon: '🏆',
+                color: '#ffd36b',
+                background: 'rgba(230, 175, 55, 0.12)',
+                border: 'rgba(255, 211, 107, 0.3)'
+              },
+              {
+                title: 'الاختبارات المتبقية',
+                value: remainingQuizzes,
+                icon: '✍️',
+                color: '#c7a4ff',
+                background: 'rgba(160, 110, 230, 0.12)',
+                border: 'rgba(199, 164, 255, 0.3)'
+              }
+            ].map(item => (
+              <div
+                key={item.title}
+                style={{
+                  background: item.background,
+                  border: `1px solid ${item.border}`,
+                  borderRadius: '15px',
+                  padding: '15px 10px',
+                  minWidth: 0,
+                  textAlign: 'center'
+                }}
+              >
+                <div style={{
+                  fontSize: '23px',
+                  marginBottom: '7px'
+                }}>
+                  {item.icon}
+                </div>
+
+                <div style={{
+                  color: item.color,
+                  fontSize: '27px',
+                  fontWeight: 'bold',
+                  lineHeight: 1.2
+                }}>
+                  {item.value}
+                </div>
+
+                <div style={{
+                  color: '#e1e5ff',
+                  fontSize: '12px',
+                  marginTop: '8px',
+                  lineHeight: 1.5
+                }}>
+                  {item.title}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{
+            marginTop: '17px',
+            padding: '12px',
+            borderRadius: '12px',
+            background: 'rgba(255,255,255,0.06)',
+            textAlign: 'center',
+            color: '#d9def8',
+            fontSize: '13px'
+          }}>
+            إجمالي الدروس والاختبارات: {totalItems}
+            <span style={{ margin: '0 8px', color: '#7182b9' }}>•</span>
+            ما أنجزته: {completedItems}
+          </div>
+
+          {totalItems === 0 && (
+            <p style={{
+              textAlign: 'center',
+              color: '#c7cce8',
+              fontSize: '13px',
+              marginBottom: 0
+            }}>
+              اشترك في أحد الكورسات المفعّلة لتبدأ متابعة إنجازك.
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setRefreshKey(value => value + 1)}
+            style={{
+              display: 'block',
+              margin: '16px auto 0',
+              padding: '9px 18px',
+              border: '1px solid rgba(126, 231, 255, 0.5)',
+              background: 'rgba(126, 231, 255, 0.08)',
+              color: '#b8f2ff',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              fontSize: '13px'
+            }}
+          >
+            تحديث الإحصائيات
+          </button>
+        </>
+      )}
+    </article>
+  );
+}
+
 function Course({
   course,
   progressRows = [],
@@ -1950,9 +2438,9 @@ function Course({
           setError(queryError.message);
           setLessons([]);
         } else {
-          const normalizedLessons = (data || []).map(row => ({
+          const normalizedLessons = normalizeLessons(data).map(row => ({
             ...row,
-            id: row.lesson_id,
+            id: row.lesson_id || row.id,
             is_unlocked: Boolean(row.is_unlocked)
           }));
 
@@ -2141,7 +2629,8 @@ function QuizPanel({ lesson, onPassed }) {
           setError(quizError.message);
           setQuiz(null);
         } else {
-          setQuiz(data || null);
+          const normalized = normalizeQuizList(data);
+          setQuiz(normalized[0] || null);
         }
       } catch (error) {
         if (active) {
