@@ -1302,12 +1302,12 @@ export default function App() {
             </section>
           )}
 
-          {session && profile?.role === 'student' && (
+          {session && (profile?.role === 'student' || profile?.role === 'admin') && (
             <section className="content">
               <StudentProgressCard
                 userId={session.user.id}
                 approvedCourses={courses.filter(c =>
-                  approvedCourseIds.includes(c.id)
+                  isAdmin || approvedCourseIds.includes(c.id)
                 )}
                 progressRows={progressRows}
               />
