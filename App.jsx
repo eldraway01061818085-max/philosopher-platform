@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { supabase, configured } from './supabase';
 
@@ -28,15 +29,41 @@ const SUPPORT_WHATSAPP = '201061818085';
 
 function getCourseImage(course) {
   const title = (course?.title || '').trim();
-
   if (/فلسفة|منطق/.test(title)) return PHILOSOPHY_IMAGE;
   if (/علم\s*نفس/.test(title)) return PSYCHOLOGY_IMAGE;
-
   return '';
 }
 
 function getErrorMessage(error) {
   return error?.message || 'حدث خطأ غير معروف. حاول مرة أخرى.';
+}
+
+function normalizeQuizList(data) {
+  let value = data;
+
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.quizzes)) return value.quizzes;
+  if (Array.isArray(value?.data)) return value.data;
+  if (value && value.id) return [value];
+
+  return [];
+}
+
+function createEmptyQuestion() {
+  return {
+    question_text: '',
+    options: ['', '', '', ''],
+    correct_option: 0,
+    sort_order: 0
+  };
 }
 
 export default function App() {
@@ -65,6 +92,20 @@ export default function App() {
   const [selectedCourse, setSelectedCourse] = useState('');
   const [viewedCourse, setViewedCourse] = useState(null);
 
+  // حالات إدارة الاختبارات
+  const [adminQuizCourse, setAdminQuizCourse] = useState('');
+  const [adminQuizLessons, setAdminQuizLessons] = useState([]);
+  const [adminQuizzes, setAdminQuizzes] = useState([]);
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [quizSaving, setQuizSaving] = useState(false);
+  const [editingQuizId, setEditingQuizId] = useState(null);
+  const [quizLessonId, setQuizLessonId] = useState('');
+  const [quizTitle, setQuizTitle] = useState('');
+  const [quizAttemptsLimit, setQuizAttemptsLimit] = useState('1');
+  const [quizPassingScore, setQuizPassingScore] = useState('50');
+  const [quizIsActive, setQuizIsActive] = useState(false);
+  const [quizQuestions, setQuizQuestions] = useState([createEmptyQuestion()]);
+
   const isAdmin = profile?.role === 'admin';
 
   useEffect(() => {
@@ -77,9 +118,7 @@ export default function App() {
         if (mounted && !error) setSession(data.session);
       })
       .catch(error => {
-        if (mounted) {
-          setMsg('تعذر التحقق من تسجيل الدخول: ' + getErrorMessage(error));
-        }
+        if (mounted) setMsg('تعذر التحقق من تسجيل الدخول: ' + getErrorMessage(error));
       });
 
     const {
@@ -114,6 +153,13 @@ export default function App() {
     if (isAdmin) loadPending();
   }, [isAdmin]);
 
+  useEffect(() => {
+    if (isAdmin && tab === 'admin' && adminQuizCourse) {
+      loadAdminQuizLessons(adminQuizCourse);
+      loadAdminQuizzes(adminQuizCourse);
+    }
+  }, [isAdmin, tab, adminQuizCourse]);
+
   async function loadProfile(activeSession = session) {
     if (!activeSession) return;
 
@@ -144,16 +190,11 @@ export default function App() {
         { data: subs, error: subsError },
         { data: progress, error: progressError }
       ] = await Promise.all([
-        supabase.from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .maybeSingle(),
-
+        supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
         supabase.from('subscriptions')
           .select('*, courses(title,grade,price)')
           .eq('student_id', userId)
           .order('created_at', { ascending: false }),
-
         supabase.from('course_progress')
           .select('id,student_id,course_id,lesson_id,completed_at')
           .eq('student_id', userId)
@@ -174,11 +215,8 @@ export default function App() {
         });
       }
 
-      if (subsError) {
-        setMsg('تعذر تحميل الاشتراكات: ' + subsError.message);
-      } else {
-        setMySubs(subs || []);
-      }
+      if (subsError) setMsg('تعذر تحميل الاشتراكات: ' + subsError.message);
+      else setMySubs(subs || []);
 
       if (progressError) {
         setProgressRows([]);
@@ -198,11 +236,8 @@ export default function App() {
         .eq('active', true)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        setMsg('تعذر تحميل الكورسات: ' + error.message);
-      } else {
-        setCourses(data || []);
-      }
+      if (error) setMsg('تعذر تحميل الكورسات: ' + error.message);
+      else setCourses(data || []);
     } catch (error) {
       setMsg('حدث خطأ أثناء تحميل الكورسات: ' + getErrorMessage(error));
     }
@@ -217,13 +252,271 @@ export default function App() {
         .eq('status', 'pending')
         .order('created_at', { ascending: true });
 
-      if (error) {
-        setMsg('تعذر تحميل طلبات الاشتراك: ' + error.message);
-      } else {
-        setPending(data || []);
-      }
+      if (error) setMsg('تعذر تحميل طلبات الاشتراك: ' + error.message);
+      else setPending(data || []);
     } catch (error) {
       setMsg('حدث خطأ أثناء تحميل الطلبات: ' + getErrorMessage(error));
+    }
+  }
+
+  // تحميل دروس الكورس المختار للأدمن باستخدام RPC الآمنة
+  async function loadAdminQuizLessons(courseId) {
+    if (!isAdmin || !courseId) {
+      setAdminQuizLessons([]);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'get_course_lessons_secure',
+        { p_course_id: courseId }
+      );
+
+      if (error) {
+        setMsg('تعذر تحميل دروس الكورس لإدارة الاختبارات: ' + error.message);
+        setAdminQuizLessons([]);
+        return;
+      }
+
+      const rows = Array.isArray(data) ? data : [];
+      setAdminQuizLessons(rows.map(row => ({
+        ...row,
+        id: row.lesson_id || row.id
+      })).filter(row => row.id));
+    } catch (error) {
+      setMsg('حدث خطأ أثناء تحميل الدروس: ' + getErrorMessage(error));
+      setAdminQuizLessons([]);
+    }
+  }
+
+  // تحميل اختبارات الكورس من دالة الإدارة
+  async function loadAdminQuizzes(courseId = adminQuizCourse) {
+    if (!isAdmin) return;
+
+    setQuizLoading(true);
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'admin_list_quizzes',
+        { p_course_id: courseId || null }
+      );
+
+      if (error) {
+        setMsg('تعذر تحميل الاختبارات: ' + error.message);
+        setAdminQuizzes([]);
+      } else {
+        setAdminQuizzes(normalizeQuizList(data));
+      }
+    } catch (error) {
+      setMsg('حدث خطأ أثناء تحميل الاختبارات: ' + getErrorMessage(error));
+      setAdminQuizzes([]);
+    } finally {
+      setQuizLoading(false);
+    }
+  }
+
+  function resetQuizForm() {
+    setEditingQuizId(null);
+    setQuizLessonId('');
+    setQuizTitle('');
+    setQuizAttemptsLimit('1');
+    setQuizPassingScore('50');
+    setQuizIsActive(false);
+    setQuizQuestions([createEmptyQuestion()]);
+  }
+
+  function editQuiz(quiz) {
+    const questions = Array.isArray(quiz.questions)
+      ? [...quiz.questions]
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+          .map((question, index) => ({
+            question_text: question.question_text || '',
+            options: Array.isArray(question.options)
+              ? question.options.map(option =>
+                  typeof option === 'string'
+                    ? option
+                    : option?.text || String(option ?? '')
+                )
+              : ['', '', '', ''],
+            correct_option: Number(question.correct_option ?? 0),
+            sort_order: Number(question.sort_order ?? index)
+          }))
+      : [];
+
+    setEditingQuizId(quiz.id);
+    setQuizLessonId(quiz.lesson_id || '');
+    setQuizTitle(quiz.title || '');
+    setQuizAttemptsLimit(String(quiz.attempts_limit ?? 1));
+    setQuizPassingScore(String(quiz.passing_score ?? 50));
+    setQuizIsActive(Boolean(quiz.is_active));
+    setQuizQuestions(questions.length ? questions : [createEmptyQuestion()]);
+
+    document.getElementById('admin-quiz-form')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start'
+    });
+  }
+
+  function updateQuizQuestion(index, field, value) {
+    setQuizQuestions(previous => previous.map((question, i) =>
+      i === index ? { ...question, [field]: value } : question
+    ));
+  }
+
+  function updateQuizOption(questionIndex, optionIndex, value) {
+    setQuizQuestions(previous => previous.map((question, i) => {
+      if (i !== questionIndex) return question;
+
+      const options = [...question.options];
+      options[optionIndex] = value;
+
+      return { ...question, options };
+    }));
+  }
+
+  function addQuizQuestion() {
+    setQuizQuestions(previous => [
+      ...previous,
+      {
+        ...createEmptyQuestion(),
+        sort_order: previous.length
+      }
+    ]);
+  }
+
+  function removeQuizQuestion(index) {
+    setQuizQuestions(previous => {
+      if (previous.length <= 1) {
+        setMsg('يجب أن يحتوي الاختبار على سؤال واحد على الأقل.');
+        return previous;
+      }
+
+      return previous
+        .filter((_, i) => i !== index)
+        .map((question, i) => ({ ...question, sort_order: i }));
+    });
+  }
+
+  async function saveAdminQuiz(event) {
+    event.preventDefault();
+
+    if (!isAdmin || quizSaving || busy) return;
+
+    if (!adminQuizCourse) {
+      setMsg('اختر الكورس أولاً.');
+      return;
+    }
+
+    if (!quizLessonId) {
+      setMsg('اختر الدرس الذي تريد ربط الاختبار به.');
+      return;
+    }
+
+    if (!quizTitle.trim()) {
+      setMsg('اكتب اسم الاختبار.');
+      return;
+    }
+
+    const attempts = Number(quizAttemptsLimit);
+    const passing = Number(quizPassingScore);
+
+    if (!Number.isInteger(attempts) || attempts < 1) {
+      setMsg('عدد المحاولات يجب أن يكون رقمًا صحيحًا لا يقل عن 1.');
+      return;
+    }
+
+    if (!Number.isFinite(passing) || passing < 0 || passing > 100) {
+      setMsg('درجة النجاح يجب أن تكون من 0 إلى 100.');
+      return;
+    }
+
+    const cleanedQuestions = quizQuestions.map((question, index) => ({
+      question_text: String(question.question_text || '').trim(),
+      options: (question.options || []).map(option => String(option || '').trim()),
+      correct_option: Number(question.correct_option),
+      sort_order: index
+    }));
+
+    for (let i = 0; i < cleanedQuestions.length; i++) {
+      const question = cleanedQuestions[i];
+
+      if (!question.question_text) {
+        setMsg(`اكتب نص السؤال رقم ${i + 1}.`);
+        return;
+      }
+
+      if (question.options.length < 2 || question.options.some(option => !option)) {
+        setMsg(`أكمل جميع اختيارات السؤال رقم ${i + 1}.`);
+        return;
+      }
+
+      if (
+        !Number.isInteger(question.correct_option) ||
+        question.correct_option < 0 ||
+        question.correct_option >= question.options.length
+      ) {
+        setMsg(`حدد الإجابة الصحيحة للسؤال رقم ${i + 1}.`);
+        return;
+      }
+    }
+
+    setQuizSaving(true);
+    setMsg('');
+
+    try {
+      const { data: savedQuizId, error: saveError } = await supabase.rpc(
+        'admin_save_quiz',
+        {
+          p_quiz_id: editingQuizId || null,
+          p_lesson_id: quizLessonId,
+          p_title: quizTitle.trim(),
+          p_attempts_limit: attempts,
+          p_passing_score: passing,
+          p_is_active: quizIsActive
+        }
+      );
+
+      if (saveError) {
+        setMsg('تعذر حفظ بيانات الاختبار: ' + saveError.message);
+        return;
+      }
+
+      const finalQuizId = savedQuizId || editingQuizId;
+
+      if (!finalQuizId) {
+        setMsg('تم حفظ بيانات الاختبار لكن لم يتم استلام معرّف الاختبار. لم يتم حفظ الأسئلة.');
+        return;
+      }
+
+      const { error: questionsError } = await supabase.rpc(
+        'admin_save_quiz_questions',
+        {
+          p_quiz_id: finalQuizId,
+          p_questions: cleanedQuestions
+        }
+      );
+
+      if (questionsError) {
+        setMsg(
+          'تم حفظ بيانات الاختبار، لكن تعذر حفظ الأسئلة: ' +
+          questionsError.message +
+          '. الاختبار محفوظ وقد يحتاج إلى استكمال أسئلته.'
+        );
+        await loadAdminQuizzes(adminQuizCourse);
+        return;
+      }
+
+      setMsg(editingQuizId
+        ? 'تم تحديث الاختبار وأسئلته بنجاح.'
+        : 'تم إنشاء الاختبار وحفظ أسئلته بنجاح.'
+      );
+
+      resetQuizForm();
+      await loadAdminQuizzes(adminQuizCourse);
+    } catch (error) {
+      setMsg('حدث خطأ أثناء حفظ الاختبار: ' + getErrorMessage(error));
+    } finally {
+      setQuizSaving(false);
     }
   }
 
@@ -268,15 +561,11 @@ export default function App() {
 
       setProgressRows(prev => {
         if (prev.some(row => row.lesson_id === lessonId)) return prev;
-
-        return [
-          ...prev,
-          {
-            student_id: session.user.id,
-            course_id: courseId,
-            lesson_id: lessonId
-          }
-        ];
+        return [...prev, {
+          student_id: session.user.id,
+          course_id: courseId,
+          lesson_id: lessonId
+        }];
       });
 
       setMsg('تم تسجيل الدرس كمكتمل بنجاح.');
@@ -374,11 +663,8 @@ export default function App() {
         password
       });
 
-      if (error) {
-        setMsg('تعذر تسجيل الدخول: ' + error.message);
-      } else {
-        setMsg('تم تسجيل الدخول بنجاح.');
-      }
+      if (error) setMsg('تعذر تسجيل الدخول: ' + error.message);
+      else setMsg('تم تسجيل الدخول بنجاح.');
     } catch (error) {
       setMsg('حدث خطأ أثناء تسجيل الدخول: ' + getErrorMessage(error));
     } finally {
@@ -557,11 +843,8 @@ export default function App() {
 
       await loadProfile(session);
 
-      if (whatsappWindow) {
-        whatsappWindow.location.href = whatsappUrl;
-      } else {
-        window.location.href = whatsappUrl;
-      }
+      if (whatsappWindow) whatsappWindow.location.href = whatsappUrl;
+      else window.location.href = whatsappUrl;
     } catch (error) {
       if (whatsappWindow) whatsappWindow.close();
       setMsg('حدث خطأ أثناء تسجيل الطلب: ' + getErrorMessage(error));
@@ -590,9 +873,8 @@ export default function App() {
         .eq('id', id)
         .eq('status', 'pending');
 
-      if (error) {
-        setMsg('تعذر تحديث الطلب: ' + error.message);
-      } else {
+      if (error) setMsg('تعذر تحديث الطلب: ' + error.message);
+      else {
         setMsg(
           status === 'approved'
             ? 'تم قبول الطلب وتفعيل الاشتراك.'
@@ -636,9 +918,8 @@ export default function App() {
         active: true
       });
 
-      if (error) {
-        setMsg('تعذرت إضافة الكورس: ' + error.message);
-      } else {
+      if (error) setMsg('تعذرت إضافة الكورس: ' + error.message);
+      else {
         setMsg('تمت إضافة الكورس بنجاح.');
         setCourseTitle('');
         setPrice('');
@@ -668,7 +949,6 @@ export default function App() {
 
     try {
       const parsedUrl = new URL(videoUrl);
-
       if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
         setMsg('رابط الفيديو غير صحيح.');
         return;
@@ -689,9 +969,8 @@ export default function App() {
         sort_order: Number(fd.get('order') || 0)
       });
 
-      if (error) {
-        setMsg('تعذرت إضافة الدرس: ' + error.message);
-      } else {
+      if (error) setMsg('تعذرت إضافة الدرس: ' + error.message);
+      else {
         setMsg('تمت إضافة الدرس بنجاح.');
         form.reset();
       }
@@ -731,9 +1010,8 @@ export default function App() {
     try {
       const { error } = await supabase.auth.signOut();
 
-      if (error) {
-        setMsg('تعذر تسجيل الخروج: ' + error.message);
-      } else {
+      if (error) setMsg('تعذر تسجيل الخروج: ' + error.message);
+      else {
         setTab('home');
         setMsg('تم تسجيل الخروج.');
       }
@@ -787,10 +1065,7 @@ export default function App() {
       </header>
 
       {menuOpen && (
-        <div
-          className="menu-overlay"
-          onClick={() => setMenuOpen(false)}
-        />
+        <div className="menu-overlay" onClick={() => setMenuOpen(false)} />
       )}
 
       <aside
@@ -809,61 +1084,43 @@ export default function App() {
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            setTab('home');
-            setMenuOpen(false);
-          }}
-        >
+        <button type="button" onClick={() => {
+          setTab('home');
+          setMenuOpen(false);
+        }}>
           الرئيسية
         </button>
 
         {session && (
-          <button
-            type="button"
-            onClick={() => {
-              setTab('dashboard');
-              setMenuOpen(false);
-            }}
-          >
+          <button type="button" onClick={() => {
+            setTab('dashboard');
+            setMenuOpen(false);
+          }}>
             حسابي
           </button>
         )}
 
         {isAdmin && (
-          <button
-            type="button"
-            onClick={() => {
-              setTab('admin');
-              setMenuOpen(false);
-            }}
-          >
+          <button type="button" onClick={() => {
+            setTab('admin');
+            setMenuOpen(false);
+          }}>
             الإدارة
           </button>
         )}
 
-        <button
-          type="button"
-          className="outline"
-          onClick={() => {
-            setMenuOpen(false);
-            openSupport();
-          }}
-        >
+        <button type="button" className="outline" onClick={() => {
+          setMenuOpen(false);
+          openSupport();
+        }}>
           الدعم الفني
         </button>
 
         {session && (
-          <button
-            type="button"
-            className="outline"
-            disabled={busy}
-            onClick={() => {
-              setMenuOpen(false);
-              logout();
-            }}
-          >
+          <button type="button" className="outline" disabled={busy} onClick={() => {
+            setMenuOpen(false);
+            logout();
+          }}>
             خروج
           </button>
         )}
@@ -874,9 +1131,7 @@ export default function App() {
           <img
             src={TEACHER_IMAGE}
             alt="صورة المدرّس"
-            onError={e => {
-              e.currentTarget.style.display = 'none';
-            }}
+            onError={e => { e.currentTarget.style.display = 'none'; }}
             style={{
               width: '180px',
               height: '180px',
@@ -894,11 +1149,7 @@ export default function App() {
         </section>
       )}
 
-      {msg && (
-        <div className="notice" role="status">
-          {msg}
-        </div>
-      )}
+      {msg && <div className="notice" role="status">{msg}</div>}
 
       {tab === 'home' && (
         <>
@@ -998,19 +1249,13 @@ export default function App() {
                     onChange={e => setGovernorate(e.target.value)}
                   >
                     <option value="">اختر المحافظة...</option>
-                    {governorates.map(g => (
-                      <option key={g} value={g}>{g}</option>
-                    ))}
+                    {governorates.map(g => <option key={g} value={g}>{g}</option>)}
                   </select>
                 </label>
 
                 <label>
                   الصف الدراسي
-                  <select
-                    required
-                    value={grade}
-                    onChange={e => setGrade(e.target.value)}
-                  >
+                  <select required value={grade} onChange={e => setGrade(e.target.value)}>
                     {grades.map(g => <option key={g}>{g}</option>)}
                   </select>
                 </label>
@@ -1049,9 +1294,7 @@ export default function App() {
                     <img
                       src={getCourseImage(c)}
                       alt={`غلاف كورس ${c.title}`}
-                      onError={e => {
-                        e.currentTarget.style.display = 'none';
-                      }}
+                      onError={e => { e.currentTarget.style.display = 'none'; }}
                       style={{
                         width: '100%',
                         height: '180px',
@@ -1067,12 +1310,10 @@ export default function App() {
                   <b>{c.price} جنيه</b>
 
                   <div className="actions">
-                    <button onClick={() => browseCourse(c)}>
-                      تصفح الكورس
-                    </button>
+                    <button onClick={() => browseCourse(c)}>تصفح الكورس</button>
 
-                    {session && mySubs.some(
-                      s => s.course_id === c.id && s.status === 'approved'
+                    {session && mySubs.some(s =>
+                      s.course_id === c.id && s.status === 'approved'
                     ) ? (
                       <p style={{
                         color: '#16803c',
@@ -1081,8 +1322,8 @@ export default function App() {
                       }}>
                         أنت مشترك في هذا الكورس ✓
                       </p>
-                    ) : session && mySubs.some(
-                      s => s.course_id === c.id && s.status === 'pending'
+                    ) : session && mySubs.some(s =>
+                      s.course_id === c.id && s.status === 'pending'
                     ) ? (
                       <p style={{
                         color: '#a87916',
@@ -1092,10 +1333,7 @@ export default function App() {
                         طلبك قيد المراجعة
                       </p>
                     ) : (
-                      <button
-                        className="outline"
-                        onClick={() => subscribeCourse(c)}
-                      >
+                      <button className="outline" onClick={() => subscribeCourse(c)}>
                         اشتراك في الكورس
                       </button>
                     )}
@@ -1104,9 +1342,7 @@ export default function App() {
               ))}
             </div>
 
-            {courses.length === 0 && (
-              <p>لا توجد كورسات متاحة حالياً.</p>
-            )}
+            {courses.length === 0 && <p>لا توجد كورسات متاحة حالياً.</p>}
           </section>
         </>
       )}
@@ -1122,9 +1358,7 @@ export default function App() {
               <img
                 src={getCourseImage(viewedCourse)}
                 alt={`غلاف كورس ${viewedCourse.title}`}
-                onError={e => {
-                  e.currentTarget.style.display = 'none';
-                }}
+                onError={e => { e.currentTarget.style.display = 'none'; }}
                 style={{
                   width: '100%',
                   maxHeight: '260px',
@@ -1180,121 +1414,46 @@ export default function App() {
               gap: '12px',
               marginTop: '16px'
             }}>
-              <div style={{
-                background: 'linear-gradient(135deg, #fffaf0, #f4ead0)',
-                border: '1px solid #e6d5a8',
-                borderRadius: '14px',
-                padding: '15px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '7px',
-                minWidth: 0
-              }}>
-                <span style={{ color: '#947326', fontSize: '13px', fontWeight: 'bold' }}>
-                  الاسم بالكامل
-                </span>
-                <strong style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
-                  {profile?.full_name || session.user.user_metadata?.full_name || 'غير مسجل'}
-                </strong>
-              </div>
-
-              <div style={{
-                background: 'linear-gradient(135deg, #f0f7ff, #e2edfa)',
-                border: '1px solid #c9dced',
-                borderRadius: '14px',
-                padding: '15px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '7px',
-                minWidth: 0
-              }}>
-                <span style={{ color: '#39719c', fontSize: '13px', fontWeight: 'bold' }}>
-                  البريد الإلكتروني
-                </span>
-                <strong dir="ltr" style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
-                  {profile?.email || session.user.email || 'غير مسجل'}
-                </strong>
-              </div>
-
-              <div style={{
-                background: 'linear-gradient(135deg, #effaf3, #e0f3e7)',
-                border: '1px solid #c6e5d0',
-                borderRadius: '14px',
-                padding: '15px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '7px',
-                minWidth: 0
-              }}>
-                <span style={{ color: '#398052', fontSize: '13px', fontWeight: 'bold' }}>
-                  رقم هاتف الطالب
-                </span>
-                <strong dir="ltr" style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
-                  {profile?.phone || session.user.user_metadata?.phone || 'غير مسجل'}
-                </strong>
-              </div>
-
-              <div style={{
-                background: 'linear-gradient(135deg, #fff3f0, #fce5df)',
-                border: '1px solid #edcfc6',
-                borderRadius: '14px',
-                padding: '15px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '7px',
-                minWidth: 0
-              }}>
-                <span style={{ color: '#a65e4b', fontSize: '13px', fontWeight: 'bold' }}>
-                  رقم ولي الأمر
-                </span>
-                <strong dir="ltr" style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
-                  {profile?.guardian_phone || session.user.user_metadata?.guardian_phone || 'غير مسجل'}
-                </strong>
-              </div>
-
-              <div style={{
-                background: 'linear-gradient(135deg, #f5f0ff, #eae2fa)',
-                border: '1px solid #d8cbed',
-                borderRadius: '14px',
-                padding: '15px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '7px',
-                minWidth: 0
-              }}>
-                <span style={{ color: '#7855a5', fontSize: '13px', fontWeight: 'bold' }}>
-                  المحافظة
-                </span>
-                <strong style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
-                  {profile?.governorate || session.user.user_metadata?.governorate || 'غير مسجلة'}
-                </strong>
-              </div>
-
-              <div style={{
-                background: 'linear-gradient(135deg, #eef8fa, #dff0f2)',
-                border: '1px solid #c6e1e5',
-                borderRadius: '14px',
-                padding: '15px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '7px',
-                minWidth: 0
-              }}>
-                <span style={{ color: '#397b85', fontSize: '13px', fontWeight: 'bold' }}>
-                  الصف الدراسي
-                </span>
-                <strong style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
-                  {profile?.grade || session.user.user_metadata?.grade || 'غير مسجل'}
-                </strong>
-              </div>
+              {[
+                ['الاسم بالكامل', profile?.full_name || session.user.user_metadata?.full_name || 'غير مسجل'],
+                ['البريد الإلكتروني', profile?.email || session.user.email || 'غير مسجل'],
+                ['رقم هاتف الطالب', profile?.phone || session.user.user_metadata?.phone || 'غير مسجل'],
+                ['رقم ولي الأمر', profile?.guardian_phone || session.user.user_metadata?.guardian_phone || 'غير مسجل'],
+                ['المحافظة', profile?.governorate || session.user.user_metadata?.governorate || 'غير مسجلة'],
+                ['الصف الدراسي', profile?.grade || session.user.user_metadata?.grade || 'غير مسجل']
+              ].map(([label, value], index) => (
+                <div key={label} style={{
+                  background: [
+                    'linear-gradient(135deg, #fffaf0, #f4ead0)',
+                    'linear-gradient(135deg, #f0f7ff, #e2edfa)',
+                    'linear-gradient(135deg, #effaf3, #e0f3e7)',
+                    'linear-gradient(135deg, #fff3f0, #fce5df)',
+                    'linear-gradient(135deg, #f5f0ff, #eae2fa)',
+                    'linear-gradient(135deg, #eef8fa, #dff0f2)'
+                  ][index],
+                  border: '1px solid #e6d5a8',
+                  borderRadius: '14px',
+                  padding: '15px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '7px',
+                  minWidth: 0
+                }}>
+                  <span style={{ color: '#947326', fontSize: '13px', fontWeight: 'bold' }}>
+                    {label}
+                  </span>
+                  <strong dir={index === 1 || index === 2 || index === 3 ? 'ltr' : undefined}
+                    style={{ color: '#26334a', fontSize: '15px', overflowWrap: 'anywhere' }}>
+                    {value}
+                  </strong>
+                </div>
+              ))}
             </div>
           </article>
 
           <h3>اشتراكاتي</h3>
 
-          {mySubs.length === 0 && (
-            <p>ليس لديك اشتراكات حتى الآن.</p>
-          )}
+          {mySubs.length === 0 && <p>ليس لديك اشتراكات حتى الآن.</p>}
 
           {mySubs.map(s => (
             <article className="panel item" key={s.id}>
@@ -1323,7 +1482,6 @@ export default function App() {
                 required
               >
                 <option value="">اختر الكورس...</option>
-
                 {courses
                   .filter(c => !mySubs.some(
                     s => s.course_id === c.id && s.status !== 'rejected'
@@ -1341,11 +1499,7 @@ export default function App() {
               <p>حوّل قيمة الكورس إلى رقم فودافون كاش التالي:</p>
               <h2 dir="ltr">{VODAFONE_CASH_NUMBER}</h2>
 
-              <button
-                type="button"
-                className="outline"
-                onClick={copyPaymentNumber}
-              >
+              <button type="button" className="outline" onClick={copyPaymentNumber}>
                 نسخ رقم فودافون كاش
               </button>
 
@@ -1391,19 +1545,12 @@ export default function App() {
 
               <label>
                 اسم الكورس
-                <input
-                  required
-                  value={courseTitle}
-                  onChange={e => setCourseTitle(e.target.value)}
-                />
+                <input required value={courseTitle} onChange={e => setCourseTitle(e.target.value)} />
               </label>
 
               <label>
                 الصف
-                <select
-                  value={courseGrade}
-                  onChange={e => setCourseGrade(e.target.value)}
-                >
+                <select value={courseGrade} onChange={e => setCourseGrade(e.target.value)}>
                   {grades.map(g => <option key={g}>{g}</option>)}
                 </select>
               </label>
@@ -1432,9 +1579,7 @@ export default function App() {
                 الكورس
                 <select name="course" required defaultValue="">
                   <option value="" disabled>اختر الكورس...</option>
-                  {courses.map(c => (
-                    <option value={c.id} key={c.id}>{c.title}</option>
-                  ))}
+                  {courses.map(c => <option value={c.id} key={c.id}>{c.title}</option>)}
                 </select>
               </label>
 
@@ -1459,21 +1604,285 @@ export default function App() {
             </form>
           </div>
 
+          {/* إدارة الاختبارات */}
+          <div className="panel" id="admin-quiz-form" style={{ marginTop: '24px' }}>
+            <h3>إدارة اختبارات الدروس</h3>
+            <p>اختر الكورس والدرس، ثم أنشئ الاختبار وأضف أسئلته واختياراته.</p>
+
+            <label>
+              اختر الكورس
+              <select
+                value={adminQuizCourse}
+                onChange={e => {
+                  setAdminQuizCourse(e.target.value);
+                  setAdminQuizLessons([]);
+                  setAdminQuizzes([]);
+                  resetQuizForm();
+                }}
+              >
+                <option value="">اختر الكورس...</option>
+                {courses.map(course => (
+                  <option key={course.id} value={course.id}>{course.title}</option>
+                ))}
+              </select>
+            </label>
+
+            <form onSubmit={saveAdminQuiz}>
+              <label>
+                الدرس المرتبط بالاختبار
+                <select
+                  value={quizLessonId}
+                  onChange={e => setQuizLessonId(e.target.value)}
+                  required
+                  disabled={!adminQuizCourse || adminQuizLessons.length === 0}
+                >
+                  <option value="">اختر الدرس...</option>
+                  {adminQuizLessons.map(lesson => (
+                    <option key={lesson.id} value={lesson.id}>{lesson.title}</option>
+                  ))}
+                </select>
+              </label>
+
+              {adminQuizCourse && adminQuizLessons.length === 0 && (
+                <p>لا توجد دروس لهذا الكورس، أو لم يتم تحميلها بعد.</p>
+              )}
+
+              <label>
+                اسم الاختبار
+                <input
+                  value={quizTitle}
+                  onChange={e => setQuizTitle(e.target.value)}
+                  required
+                  placeholder="مثال: اختبار الدرس الأول"
+                />
+              </label>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '12px'
+              }}>
+                <label>
+                  عدد المحاولات
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={quizAttemptsLimit}
+                    onChange={e => setQuizAttemptsLimit(e.target.value)}
+                    required
+                  />
+                </label>
+
+                <label>
+                  درجة النجاح (%)
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={quizPassingScore}
+                    onChange={e => setQuizPassingScore(e.target.value)}
+                    required
+                  />
+                </label>
+              </div>
+
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                margin: '15px 0'
+              }}>
+                <input
+                  type="checkbox"
+                  checked={quizIsActive}
+                  onChange={e => setQuizIsActive(e.target.checked)}
+                  style={{ width: 'auto' }}
+                />
+                تفعيل الاختبار ليظهر للطلاب
+              </label>
+
+              <div className="section-heading">
+                <h4>أسئلة الاختبار ({quizQuestions.length})</h4>
+                <button type="button" className="outline" onClick={addQuizQuestion}>
+                  + إضافة سؤال
+                </button>
+              </div>
+
+              {quizQuestions.map((question, questionIndex) => (
+                <div
+                  key={questionIndex}
+                  style={{
+                    border: '1px solid #e5d6ad',
+                    borderRadius: '12px',
+                    padding: '15px',
+                    margin: '15px 0',
+                    background: '#fffdf7'
+                  }}
+                >
+                  <div className="section-heading">
+                    <h4>السؤال رقم {questionIndex + 1}</h4>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => removeQuizQuestion(questionIndex)}
+                      disabled={quizQuestions.length <= 1}
+                    >
+                      حذف السؤال
+                    </button>
+                  </div>
+
+                  <label>
+                    نص السؤال
+                    <textarea
+                      rows="3"
+                      value={question.question_text}
+                      onChange={e => updateQuizQuestion(
+                        questionIndex,
+                        'question_text',
+                        e.target.value
+                      )}
+                      required
+                      style={{ width: '100%', resize: 'vertical' }}
+                    />
+                  </label>
+
+                  <p><b>الاختيارات</b></p>
+
+                  {question.options.map((option, optionIndex) => (
+                    <label key={optionIndex}>
+                      الاختيار {optionIndex + 1}
+                      <input
+                        value={option}
+                        onChange={e => updateQuizOption(
+                          questionIndex,
+                          optionIndex,
+                          e.target.value
+                        )}
+                        required
+                        placeholder={`اكتب الاختيار ${optionIndex + 1}`}
+                      />
+                    </label>
+                  ))}
+
+                  <label>
+                    الإجابة الصحيحة
+                    <select
+                      value={question.correct_option}
+                      onChange={e => updateQuizQuestion(
+                        questionIndex,
+                        'correct_option',
+                        Number(e.target.value)
+                      )}
+                    >
+                      {question.options.map((_, optionIndex) => (
+                        <option key={optionIndex} value={optionIndex}>
+                          الاختيار {optionIndex + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              ))}
+
+              <div className="actions">
+                <button type="submit" disabled={quizSaving || !adminQuizCourse}>
+                  {quizSaving
+                    ? 'جارٍ حفظ الاختبار والأسئلة...'
+                    : editingQuizId
+                      ? 'حفظ تعديلات الاختبار'
+                      : 'إنشاء الاختبار وحفظ الأسئلة'}
+                </button>
+
+                {editingQuizId && (
+                  <button
+                    type="button"
+                    className="outline"
+                    onClick={resetQuizForm}
+                    disabled={quizSaving}
+                  >
+                    إلغاء التعديل
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+
+          <div className="panel" style={{ marginTop: '24px' }}>
+            <div className="section-heading">
+              <h3>الاختبارات المسجلة ({adminQuizzes.length})</h3>
+              <button
+                type="button"
+                className="outline"
+                disabled={quizLoading || !adminQuizCourse}
+                onClick={() => loadAdminQuizzes(adminQuizCourse)}
+              >
+                {quizLoading ? 'جارٍ التحديث...' : 'تحديث الاختبارات'}
+              </button>
+            </div>
+
+            {!adminQuizCourse && <p>اختر كورسًا لعرض اختباراته.</p>}
+
+            {adminQuizCourse && quizLoading && <p>جارٍ تحميل الاختبارات...</p>}
+
+            {adminQuizCourse && !quizLoading && adminQuizzes.length === 0 && (
+              <p>لا توجد اختبارات مسجلة لهذا الكورس حتى الآن.</p>
+            )}
+
+            {adminQuizzes.map(quiz => (
+              <article className="item" key={quiz.id} style={{
+                border: '1px solid #eee',
+                borderRadius: '12px',
+                padding: '14px',
+                margin: '12px 0'
+              }}>
+                <h4>{quiz.title || 'اختبار بدون اسم'}</h4>
+
+                <p>
+                  الدرس: {
+                    quiz.lesson_title ||
+                    quiz.lessons?.title ||
+                    adminQuizLessons.find(lesson => lesson.id === quiz.lesson_id)?.title ||
+                    'غير محدد'
+                  }
+                </p>
+
+                <p>
+                  درجة النجاح: {quiz.passing_score ?? 50}% |
+                  عدد المحاولات: {quiz.attempts_limit ?? 1}
+                </p>
+
+                <p>
+                  عدد الأسئلة: {Array.isArray(quiz.questions) ? quiz.questions.length : 0}
+                </p>
+
+                <p style={{
+                  color: quiz.is_active ? '#16803c' : '#a87916',
+                  fontWeight: 'bold'
+                }}>
+                  {quiz.is_active ? 'الاختبار مفعّل' : 'الاختبار غير مفعّل'}
+                </p>
+
+                <button
+                  type="button"
+                  className="outline"
+                  onClick={() => editQuiz(quiz)}
+                >
+                  تعديل الاختبار والأسئلة
+                </button>
+              </article>
+            ))}
+          </div>
+
           <div className="section-heading">
             <h3>طلبات الاشتراك المعلقة ({pending.length})</h3>
-            <button
-              type="button"
-              className="outline"
-              disabled={busy}
-              onClick={loadPending}
-            >
+            <button type="button" className="outline" disabled={busy} onClick={loadPending}>
               تحديث
             </button>
           </div>
 
-          {pending.length === 0 && (
-            <p>لا توجد طلبات معلقة حالياً.</p>
-          )}
+          {pending.length === 0 && <p>لا توجد طلبات معلقة حالياً.</p>}
 
           {pending.map(s => (
             <article className="panel item" key={s.id}>
@@ -1485,23 +1894,13 @@ export default function App() {
               <span>المحافظة: {s.profiles?.governorate || 'غير محددة'}</span>
               <span>البريد: {s.profiles?.email || 'غير متاح'}</span>
 
-              <p>
-                تأكد من وصول التحويل فعلياً قبل الضغط على قبول وتفعيل.
-              </p>
+              <p>تأكد من وصول التحويل فعلياً قبل الضغط على قبول وتفعيل.</p>
 
               <div className="actions">
-                <button
-                  disabled={busy}
-                  onClick={() => review(s.id, 'approved')}
-                >
+                <button disabled={busy} onClick={() => review(s.id, 'approved')}>
                   قبول وتفعيل
                 </button>
-
-                <button
-                  disabled={busy}
-                  className="danger"
-                  onClick={() => review(s.id, 'rejected')}
-                >
+                <button disabled={busy} className="danger" onClick={() => review(s.id, 'rejected')}>
                   رفض
                 </button>
               </div>
@@ -1568,9 +1967,7 @@ function Course({
 
     loadLessons();
 
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [course.id, refreshKey]);
 
   const completedIds = new Set(
@@ -1603,10 +2000,7 @@ function Course({
           borderRadius: '12px'
         }}>
           <b>تقدمك في الكورس: {percent}%</b>
-
-          <p>
-            {completedCount} من {lessons.length} دروس مكتملة
-          </p>
+          <p>{completedCount} من {lessons.length} دروس مكتملة</p>
 
           <div style={{
             height: '10px',
@@ -1660,18 +2054,12 @@ function Course({
               opacity: unlocked ? 1 : 0.75
             }}
           >
-            <p>
-              {unlocked ? '▶' : '🔒'} {lesson.title}
-            </p>
+            <p>{unlocked ? '▶' : '🔒'} {lesson.title}</p>
 
             {unlocked ? (
               <>
                 {lesson.video_url ? (
-                  <a
-                    href={lesson.video_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <a href={lesson.video_url} target="_blank" rel="noopener noreferrer">
                     مشاهدة الدرس
                   </a>
                 ) : (
@@ -1680,11 +2068,7 @@ function Course({
 
                 <div style={{ marginTop: '10px' }}>
                   {completed ? (
-                    <button
-                      type="button"
-                      className="outline"
-                      disabled
-                    >
+                    <button type="button" className="outline" disabled>
                       تمت المشاهدة ✓
                     </button>
                   ) : (
@@ -1698,10 +2082,7 @@ function Course({
                   )}
                 </div>
 
-                <QuizPanel
-                  lesson={lesson}
-                  onPassed={refreshLessons}
-                />
+                <QuizPanel lesson={lesson} onPassed={refreshLessons} />
               </>
             ) : (
               <div style={{
@@ -1712,9 +2093,7 @@ function Course({
                 color: '#777'
               }}>
                 <b>هذا الدرس مغلق حالياً</b>
-                <p>
-                  أكمل اختبار الدرس السابق بنجاح لفتح هذا الدرس.
-                </p>
+                <p>أكمل اختبار الدرس السابق بنجاح لفتح هذا الدرس.</p>
               </div>
             )}
           </div>
@@ -1751,7 +2130,6 @@ function QuizPanel({ lesson, onPassed }) {
       setError('');
 
       try {
-        // استخدام الدالة الآمنة بدلاً من القراءة المباشرة من جدول quizzes.
         const { data, error: quizError } = await supabase.rpc(
           'get_lesson_quiz_secure',
           { p_lesson_id: lesson.id }
@@ -1777,9 +2155,7 @@ function QuizPanel({ lesson, onPassed }) {
 
     loadQuiz();
 
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [lesson.id]);
 
   async function openQuiz() {
@@ -1803,13 +2179,9 @@ function QuizPanel({ lesson, onPassed }) {
 
       let rows = [];
 
-      if (Array.isArray(data)) {
-        rows = data;
-      } else if (Array.isArray(data?.questions)) {
-        rows = data.questions;
-      } else if (data && data.question_text) {
-        rows = [data];
-      }
+      if (Array.isArray(data)) rows = data;
+      else if (Array.isArray(data?.questions)) rows = data.questions;
+      else if (data && data.question_text) rows = [data];
 
       const validQuestions = rows
         .filter(row => row && row.id && row.question_text)
@@ -1828,10 +2200,7 @@ function QuizPanel({ lesson, onPassed }) {
   }
 
   function chooseAnswer(questionId, optionIndex) {
-    setAnswers(prev => ({
-      ...prev,
-      [questionId]: optionIndex
-    }));
+    setAnswers(prev => ({ ...prev, [questionId]: optionIndex }));
   }
 
   async function submitQuiz(event) {
@@ -1869,9 +2238,7 @@ function QuizPanel({ lesson, onPassed }) {
       const quizResult = Array.isArray(data) ? data[0] : data;
       setResult(quizResult || null);
 
-      if (quizResult?.passed) {
-        onPassed?.();
-      }
+      if (quizResult?.passed) onPassed?.();
     } catch (error) {
       setError(getErrorMessage(error));
     } finally {
@@ -1882,11 +2249,7 @@ function QuizPanel({ lesson, onPassed }) {
   if (loading) return <p>جارٍ التحقق من اختبار الدرس...</p>;
 
   if (error && !opened) {
-    return (
-      <p style={{ color: '#b42318' }}>
-        تعذر تحميل الاختبار: {error}
-      </p>
-    );
+    return <p style={{ color: '#b42318' }}>تعذر تحميل الاختبار: {error}</p>;
   }
 
   if (!quiz) return null;
@@ -1902,21 +2265,15 @@ function QuizPanel({ lesson, onPassed }) {
       <h4>{quiz.title || 'اختبار الدرس'}</h4>
 
       {!opened && (
-        <button type="button" onClick={openQuiz}>
-          بدء اختبار الدرس
-        </button>
+        <button type="button" onClick={openQuiz}>بدء اختبار الدرس</button>
       )}
 
-      {opened && error && (
-        <p style={{ color: '#b42318' }}>{error}</p>
-      )}
+      {opened && error && <p style={{ color: '#b42318' }}>{error}</p>}
 
       {opened && questions.length > 0 && !result && (
         <form onSubmit={submitQuiz}>
           {questions.map((question, questionIndex) => {
-            const options = Array.isArray(question.options)
-              ? question.options
-              : [];
+            const options = Array.isArray(question.options) ? question.options : [];
 
             return (
               <div
@@ -1928,9 +2285,7 @@ function QuizPanel({ lesson, onPassed }) {
                   borderRadius: '10px'
                 }}
               >
-                <b>
-                  {questionIndex + 1}. {question.question_text}
-                </b>
+                <b>{questionIndex + 1}. {question.question_text}</b>
 
                 <div style={{
                   display: 'grid',
@@ -1965,10 +2320,7 @@ function QuizPanel({ lesson, onPassed }) {
             );
           })}
 
-          <button
-            type="submit"
-            disabled={submitting}
-          >
+          <button type="submit" disabled={submitting}>
             {submitting ? 'جارٍ تصحيح الاختبار...' : 'إرسال الإجابات'}
           </button>
         </form>
@@ -1986,21 +2338,10 @@ function QuizPanel({ lesson, onPassed }) {
             {result.passed ? 'مبروك! نجحت في الاختبار ✓' : 'لم تحقق درجة النجاح'}
           </h4>
 
-          <p>
-            النتيجة: {result.score} من {result.total}
-          </p>
-
-          <p>
-            النسبة: {result.percentage}%
-          </p>
-
-          <p>
-            المحاولة: {result.attempt_number} من {result.attempts_limit}
-          </p>
-
-          <p>
-            المحاولات المتبقية: {result.attempts_remaining}
-          </p>
+          <p>النتيجة: {result.score} من {result.total}</p>
+          <p>النسبة: {result.percentage}%</p>
+          <p>المحاولة: {result.attempt_number} من {result.attempts_limit}</p>
+          <p>المحاولات المتبقية: {result.attempts_remaining}</p>
 
           {result.passed ? (
             <p>
@@ -2009,9 +2350,7 @@ function QuizPanel({ lesson, onPassed }) {
                 : 'تم اجتياز الاختبار بنجاح.'}
             </p>
           ) : (
-            <p>
-              يمكنك المحاولة مرة أخرى إذا كانت لديك محاولات متبقية.
-            </p>
+            <p>يمكنك المحاولة مرة أخرى إذا كانت لديك محاولات متبقية.</p>
           )}
 
           <button
