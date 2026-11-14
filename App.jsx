@@ -1062,7 +1062,65 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className="app theme-six">
+      <style>{`
+        .app.theme-six {
+          --bg: #06131f; --bg2: #0a2030; --panel: rgba(8, 29, 43, .94);
+          --panel2: #0d2b3e; --cyan: #00e5ff; --cyan2: #00b9e8;
+          --text: #effaff; --muted: #a9c8d5; --line: rgba(0, 220, 255, .35);
+          min-height: 100vh; color: var(--text); direction: rtl;
+          background: radial-gradient(ellipse at 50% 0%, #103c56 0%, #071a29 42%, #030b13 100%);
+          padding-bottom: 36px; color-scheme: dark;
+        }
+        .app.theme-six * { box-sizing: border-box; }
+        .app.theme-six header { background: rgba(3, 14, 24, .94); border-bottom: 1px solid var(--line);
+          box-shadow: 0 8px 30px rgba(0, 213, 255, .12); color: var(--text); }
+        .app.theme-six header small, .app.theme-six .eyebrow { color: var(--cyan); }
+        .app.theme-six .mark { background: linear-gradient(145deg, #00e5ff, #006b9d); color: #00131d;
+          box-shadow: 0 0 22px rgba(0, 229, 255, .5); }
+        .app.theme-six .hero { position: relative; overflow: hidden; margin: 24px auto; max-width: 1100px;
+          border: 1px solid var(--line); border-radius: 26px; padding: 34px 22px;
+          background: radial-gradient(ellipse at 50% 110%, rgba(0, 224, 255, .24), transparent 58%),
+            linear-gradient(145deg, #0d3046, #061522 70%);
+          box-shadow: 0 0 34px rgba(0, 199, 255, .14), inset 0 0 35px rgba(0, 213, 255, .05); }
+        .app.theme-six .hero h1 { color: #f4fcff; text-shadow: 0 0 18px rgba(0, 221, 255, .25); }
+        .app.theme-six .hero p { color: var(--muted); }
+        .app.theme-six .panel, .app.theme-six .item, .app.theme-six .course {
+          color: var(--text); background: linear-gradient(155deg, rgba(13, 43, 62, .98), rgba(5, 20, 31, .98));
+          border: 1px solid var(--line); border-radius: 20px;
+          box-shadow: 0 10px 28px rgba(0, 0, 0, .28), 0 0 18px rgba(0, 205, 255, .08); }
+        .app.theme-six h1, .app.theme-six h2, .app.theme-six h3, .app.theme-six h4 { color: #f2fbff; }
+        .app.theme-six p, .app.theme-six label, .app.theme-six small { color: var(--muted); }
+        .app.theme-six input, .app.theme-six select, .app.theme-six textarea {
+          color: #f4fcff; background: #061b29; border: 1px solid rgba(0, 220, 255, .38);
+          border-radius: 12px; outline: none; }
+        .app.theme-six input:focus, .app.theme-six select:focus, .app.theme-six textarea:focus {
+          border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(0, 229, 255, .13); }
+        .app.theme-six input::placeholder, .app.theme-six textarea::placeholder { color: #7897a6; }
+        .app.theme-six button { border-radius: 13px; transition: transform .18s ease, box-shadow .18s ease; }
+        .app.theme-six button:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 0 18px rgba(0, 229, 255, .24); }
+        .app.theme-six button:not(.outline):not(.danger) { color: #00151f; border: 1px solid #63f3ff;
+          background: linear-gradient(110deg, #00e5ff, #00a8d8); font-weight: 800; }
+        .app.theme-six button.outline { color: var(--cyan); border: 1px solid var(--cyan);
+          background: rgba(0, 193, 230, .07); }
+        .app.theme-six button.danger { color: #fff; background: #9f2638; border: 1px solid #ff7185; }
+        .app.theme-six .tag { color: #8df5ff; background: rgba(0, 210, 245, .1);
+          border: 1px solid rgba(0, 220, 255, .35); border-radius: 999px; }
+        .app.theme-six .notice { color: #dffcff; background: #0b3544; border: 1px solid var(--cyan);
+          border-radius: 14px; box-shadow: 0 0 18px rgba(0, 229, 255, .12); }
+        .app.theme-six .side-menu { color: var(--text); background: #061724; border-left: 1px solid var(--line);
+          box-shadow: -12px 0 35px rgba(0, 0, 0, .4); }
+        .app.theme-six .side-menu button { color: var(--text); background: #0b2a3b; border: 1px solid rgba(0, 220, 255, .22); }
+        .app.theme-six .menu-overlay { background: rgba(0, 5, 10, .72); }
+        .app.theme-six .section-heading { color: var(--text); }
+        .app.theme-six a, .app.theme-six .link { color: var(--cyan); }
+        .app.theme-six hr { border-color: var(--line); }
+        @media (max-width: 640px) {
+          .app.theme-six .hero { margin: 14px 10px; padding: 25px 14px; border-radius: 20px; }
+          .app.theme-six .hero img { width: 145px !important; height: 145px !important; }
+          .app.theme-six .content { padding-left: 12px; padding-right: 12px; }
+        }
+      `}</style>
       <header>
         <div>
           <span className="mark">ف</span>
