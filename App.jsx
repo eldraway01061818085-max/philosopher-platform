@@ -1076,8 +1076,17 @@ export default function App() {
         .app.theme-six header { background: rgba(3, 14, 24, .94); border-bottom: 1px solid var(--line);
           box-shadow: 0 8px 30px rgba(0, 213, 255, .12); color: var(--text); }
         .app.theme-six header small, .app.theme-six .eyebrow { color: var(--cyan); }
-        .app.theme-six .mark { background: linear-gradient(145deg, #00e5ff, #006b9d); color: #00131d;
-          box-shadow: 0 0 22px rgba(0, 229, 255, .5); }
+        .app.theme-six .mark {
+          display: block;
+          width: 58px;
+          height: 58px;
+          flex: 0 0 58px;
+          object-fit: cover;
+          border-radius: 50%;
+          border: 2px solid #d4af37;
+          background: #061724;
+          box-shadow: 0 0 22px rgba(0, 229, 255, .35);
+        }
         .app.theme-six .hero { position: relative; overflow: hidden; margin: 24px auto; max-width: 1100px;
           border: 1px solid var(--line); border-radius: 26px; padding: 34px 22px;
           background: radial-gradient(ellipse at 50% 110%, rgba(0, 224, 255, .24), transparent 58%),
@@ -1123,7 +1132,7 @@ export default function App() {
       `}</style>
       <header>
         <div>
-          <span className="mark">ف</span>
+          <img className="mark" src="/file_000000002ce8821080a729746aa352e5.png" alt="شعار منصة الفيلسوف محمود حسن" />
           <div>
             <b>منصة الفيلسوف محمود حسن</b>
             <small>الفلسفة والمنطق • المنهج المصري</small>
