@@ -95,6 +95,7 @@ export default function App() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [authMode, setAuthMode] = useState('register');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -1172,7 +1173,8 @@ export default function App() {
       {tab === 'home' && (
         <>
           {!session ? (
-            <section className="auth grid2">
+            <section className="auth" style={{ maxWidth: 560, margin: '0 auto' }}>
+              {authMode === 'login' ? (
               <form className="panel" onSubmit={login}>
                 <h2>تسجيل الدخول</h2>
 
@@ -1210,8 +1212,19 @@ export default function App() {
                 >
                   نسيت كلمة المرور؟
                 </button>
+                <p style={{ textAlign: 'center', marginTop: 18 }}>
+                  ليس لديك حساب؟{' '}
+                  <button
+                    type="button"
+                    className="link"
+                    disabled={busy}
+                    onClick={() => { setAuthMode('register'); setMsg(''); }}
+                  >
+                    إنشاء حساب
+                  </button>
+                </p>
               </form>
-
+              ) : (
               <form className="panel" onSubmit={register}>
                 <h2>إنشاء حساب طالب</h2>
 
@@ -1291,9 +1304,22 @@ export default function App() {
                 </label>
 
                 <button disabled={busy}>
-                  {busy ? 'جارٍ إنشاء الحساب...' : 'إنشاء الحساب'}
+                  {busy ? 'جارٍ إنشاء الحساب...' : 'إنشاء حساب'}
                 </button>
+
+                <p style={{ textAlign: 'center', marginTop: 18 }}>
+                  لديك حساب؟{' '}
+                  <button
+                    type="button"
+                    className="link"
+                    disabled={busy}
+                    onClick={() => { setAuthMode('login'); setMsg(''); }}
+                  >
+                    تسجيل دخول
+                  </button>
+                </p>
               </form>
+              )}
             </section>
           ) : (
             <section className="content">
