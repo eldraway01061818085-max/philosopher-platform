@@ -1229,6 +1229,65 @@ export default function App() {
             <p>حصل على المركز الأول على دفعته في الكلية، ويتميز بأسلوبه التعليمي المتميز وقدرته على تبسيط المعلومات وتوصيلها للطلاب بأسلوب سهل وفعّال.</p>
             <p><strong>أستاذ متميز، وخبرة كبيرة، ورسالة هدفها مساعدة كل طالب على التفوق وتحقيق أفضل النتائج.</strong></p>
             <p style={{ color: 'var(--cyan)', fontWeight: 700 }}>مع الأستاذ محمود حسن، طريقك نحو التفوق يبدأ بخطوة!</p>
+            <div className="teacher-social-links" aria-label="روابط التواصل الاجتماعي">
+              <a
+                href="https://youtube.com/channel/UC_uNPKOYKXi6HQgQZBHMYOQ?si=dBlrHrxFzSy8tneI"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="قناة الأستاذ محمود حسن على يوتيوب"
+                title="YouTube"
+                className="teacher-social-link youtube-social"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path fill="currentColor" d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8ZM9.6 15.6V8.4l6.3 3.6-6.3 3.6Z" />
+                </svg>
+              </a>
+              <a
+                href="https://www.tiktok.com/@mastermahmoud964"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="حساب الأستاذ محمود حسن على تيك توك"
+                title="TikTok"
+                className="teacher-social-link tiktok-social"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path fill="currentColor" d="M19.6 6.2a5.7 5.7 0 0 1-3.5-1.2A5.8 5.8 0 0 1 14.2 1h-3.7v14.2a2.7 2.7 0 1 1-2.7-2.7c.3 0 .6 0 .9.1V8.8a7 7 0 1 0 5.5 6.8V8.4a9.4 9.4 0 0 0 5.4 1.7V6.4c0-.1 0-.1 0-.2Z" />
+                </svg>
+              </a>
+            </div>
+            <style>{`
+              .teacher-social-links {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 18px;
+                margin: 17px auto 2px;
+              }
+              .teacher-social-link {
+                width: 42px;
+                height: 42px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 50%;
+                text-decoration: none;
+                background: rgba(255,255,255,.055);
+                transition: transform .2s ease, filter .2s ease, box-shadow .2s ease;
+              }
+              .teacher-social-link svg { width: 23px; height: 23px; display: block; }
+              .youtube-social { color: #ff0033; }
+              .tiktok-social { color: #fff; }
+              .teacher-social-link:hover {
+                transform: translateY(-3px) scale(1.1);
+                filter: drop-shadow(0 0 8px currentColor);
+              }
+              .youtube-social:hover { box-shadow: 0 0 17px rgba(255,0,51,.28); }
+              .tiktok-social:hover { box-shadow: 0 0 17px rgba(37,244,238,.25); }
+              .tiktok-social svg { filter: drop-shadow(2px 1px 0 #25f4ee) drop-shadow(-2px -1px 0 #fe2c55); }
+              @media (prefers-reduced-motion: reduce) {
+                .teacher-social-link { transition: none; }
+              }
+            `}</style>
           </div>
         </section>
       )}
